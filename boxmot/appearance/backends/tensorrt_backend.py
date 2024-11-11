@@ -5,7 +5,7 @@ from boxmot.utils import logger as LOGGER
 
 from boxmot.appearance.backends.base_backend import BaseModelBackend
 
-
+from collections import namedtuple,OrderedDict
 
 class TensorRTBackend(BaseModelBackend):
 
@@ -20,8 +20,8 @@ class TensorRTBackend(BaseModelBackend):
         self.checker.check_packages(("nvidia-tensorrt",))
         import tensorrt as trt  # https://developer.nvidia.com/nvidia-tensorrt-download
 
-        if device.type == "cpu":
-            device = torch.device("cuda:0")
+        if self.device.type == "cpu":
+            self.device = torch.device("cuda:0")
         Binding = namedtuple("Binding", ("name", "dtype", "shape", "data", "ptr"))
         logger = trt.Logger(trt.Logger.INFO)
         with open(w, "rb") as f, trt.Runtime(logger) as runtime:
@@ -42,7 +42,7 @@ class TensorRTBackend(BaseModelBackend):
                 if dtype == np.float16:
                     self.fp16 = True
             shape = tuple(self.context.get_binding_shape(index))
-            im = torch.from_numpy(np.empty(shape, dtype=dtype)).to(device)
+            im = torch.from_numpy(np.empty(shape, dtype=dtype)).to(self.device)
             self.bindings[name] = Binding(
                 name, dtype, shape, im, int(im.data_ptr())
             )

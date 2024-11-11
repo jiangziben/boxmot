@@ -27,8 +27,8 @@ class EngineExporter(BaseExporter):
 
         builder = trt.Builder(logger)
         config = builder.create_builder_config()
-        config.max_workspace_size = self.workspace * 1 << 30
-
+        # config.max_workspace_size = self.workspace * 1 << 30
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, self.workspace * 1 << 30)
         flag = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
         network = builder.create_network(flag)
         parser = trt.OnnxParser(network, logger)
@@ -62,8 +62,8 @@ class EngineExporter(BaseExporter):
         if builder.platform_has_fast_fp16 and self.half:
             config.set_flag(trt.BuilderFlag.FP16)
             config.default_device_type = trt.DeviceType.GPU
-        with builder.build_engine(network, config) as engine, open(f, "wb") as t:
-            t.write(engine.serialize())
+        with builder.build_serialized_network(network, config) as engine, open(f, "wb") as t:
+            t.write(engine)
         return f
 
 
