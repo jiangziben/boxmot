@@ -57,7 +57,7 @@ def on_predict_start(predictor, persist=False):
 @torch.no_grad()
 def run(args):
     
-    ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolo11', 'rtdetr', 'sam']
+    ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolov11', 'rtdetr', 'sam']
 
     yolo = YOLO(
         args.yolo_model if any(yolo in str(args.yolo_model) for yolo in ul_models) else 'yolov8n.pt',
@@ -113,13 +113,13 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m.pt", #WEIGHTS / 'yolov8n',
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
-    parser.add_argument('--tracking-method', type=str, default='deepocsort',
+    parser.add_argument('--tracking-method', type=str, default='ocsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
-    parser.add_argument('--source', type=str, default='0',
+    parser.add_argument('--source', type=str, default='/home/jiangziben/data/people_tracking/gait/20241030_165339.mp4',#'0',
                         help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')

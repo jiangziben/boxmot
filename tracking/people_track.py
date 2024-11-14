@@ -16,13 +16,20 @@ from tracking.detectors import get_yolo_inferer
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
-
+import sys
+import os
+# 获取当前脚本路径
+script_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(script_path, "../third_party/ultralytics")) # add ultralytics to path
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
 from ultralytics.utils.plotting import save_one_box
 from tracking.face_detect import FaceDetector
 import time
+from tracking.get_3d_pos import get_foot_point_from_bbox_and_depth
+import rospy
+from people_tracking.msg import FloatArray3
 
 class PersonInfo:
     def __init__(self, track_id, name_id, face_box):
@@ -68,6 +75,20 @@ class PeopleId:
             return self.people_id[track_id].name_id  
         else:
             return -1
+    def get_track_id(self,name_id):
+        for track_id, person_info in self.people_id.items():
+            if person_info.name_id == name_id:
+                return track_id
+        return -1
+    
+    def get_person_trajectory(self, name_id, active_tracks):
+        track_id = self.get_track_id(name_id)
+        for active_track in active_tracks:
+            if 0 == int(active_track.cls): # only track people
+                if active_track.id == track_id:
+                    return active_track
+        return None
+
 
 def on_predict_start(predictor, persist=False):
     """
@@ -98,6 +119,64 @@ def on_predict_start(predictor, persist=False):
         trackers.append(tracker)
 
     predictor.trackers = trackers
+
+# def on_predict_postprocess_end(predictor: object, persist: bool = False, intrinsics: np.ndarray = None) -> None:
+#     """
+#     Postprocess detected boxes and update with object tracking.
+
+#     Args:
+#         predictor (object): The predictor object containing the predictions.
+#         persist (bool): Whether to persist the trackers if they already exist.
+
+#     Examples:
+#         Postprocess predictions and update with tracking
+#         >>> predictor = YourPredictorClass()
+#         >>> on_predict_postprocess_end(predictor, persist=True)
+#     """
+#     depths = predictor.batch[3] if len(predictor.batch) == 4 else None
+
+#     is_obb = predictor.args.task == "obb"
+#     is_stream = predictor.dataset.mode == "stream"
+#     for i in range(len(depths)):
+#         det = (predictor.results[i].obb if is_obb else predictor.results[i].boxes.data).cpu().numpy()
+#         if len(det) == 0:
+#             continue
+#         # predictor.results[i] = predictor.results[i]
+
+#         # update_args = {"obb" if is_obb else "boxes": torch.as_tensor(tracks[:, :-1])}
+#         # predictor.results[i].update(**update_args)
+
+#         # boxes = predictor.results[i].boxes.data
+#         # for box in boxes:
+#         #     x1, y1, x2, y2,id, conf, cls = box.cpu().numpy()
+#         #     if cls == 0:         
+#         #         # 获取落脚点的 3D 坐标
+#         #         foot_point = get_foot_point_from_bbox_and_depth((x1,y1,x2,y2), depths[i], intrinsics)
+
+#         #         if foot_point:
+#         #             print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
+#         #             predictor.results[i] = predictor.results[i][idx]
+
+#         #             update_args = {"pos_3d": torch.as_tensor(tracks[:, :-1])}
+#         #             predictor.results[i].update(**update_args)
+#         #         else:
+#         #             print("无法获取落脚点的 3D 坐标，可能是深度无效。")    
+#     #     tracker = predictor.trackers[i if is_stream else 0]
+#     #     vid_path = predictor.save_dir / Path(path[i]).name
+#     #     if not persist and predictor.vid_path[i if is_stream else 0] != vid_path:
+#     #         predictor.vid_path[i if is_stream else 0] = vid_path
+
+#     #     det = (predictor.results[i].obb if is_obb else predictor.results[i].boxes.data).cpu().numpy()
+#     #     if len(det) == 0:
+#     #         continue
+#     #     tracks = tracker.update(det, im0s[i])
+#     #     if len(tracks) == 0:
+#     #         continue
+#     #     idx = tracks[:, -1].astype(int)
+#     #     predictor.results[i] = predictor.results[i][idx]
+
+#     #     update_args = {"obb" if is_obb else "boxes": torch.as_tensor(tracks[:, :-1])}
+#     #     predictor.results[i].update(**update_args)
 
 def plot_results(self, people_id:PeopleId, img: np.ndarray, show_trajectories: bool, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
     """
@@ -142,7 +221,12 @@ def plot_results(self, people_id:PeopleId, img: np.ndarray, show_trajectories: b
 
 @torch.no_grad()
 def run(args):
-    
+    # 相机内参矩阵 (fx, fy, cx, cy)
+    intrinsics = np.array([
+        [687.633179, 0, 638.220703],  # fx, 0, cx
+        [0, 687.575684, 356.474426],  # 0, fy, cy
+        [0, 0, 1]           # 0, 0, 1
+    ])
     ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolov11', 'rtdetr', 'sam']
 
     yolo = YOLO(
@@ -172,6 +256,7 @@ def run(args):
     )
 
     yolo.add_callback('on_predict_start', partial(on_predict_start, persist=True))
+    # yolo.add_callback('on_predict_postprocess_end', partial(on_predict_postprocess_end,intrinsics=intrinsics))
 
     if not any(yolo in str(args.yolo_model) for yolo in ul_models):
         # replace yolov8 model
@@ -185,43 +270,76 @@ def run(args):
 
     # store custom args in predictor
     yolo.predictor.custom_args = args
-    face_detector = FaceDetector("/home/jiangziben/data/people_tracking/known_people/jzb/jzb.png")
+    face_detector = FaceDetector("/home/jiangziben/data/people_tracking/known_people/zk/zk.png")
     people_id = PeopleId(face_detector.known_face_names)
     face_detected = False
+    host_id = 0
+    # 初始化ROS节点
+    rospy.init_node('people_tracking_node', anonymous=True)
+    
+    # 创建一个发布者，发布到 /float_array 话题上，消息类型为 Float32MultiArray
+    pub = rospy.Publisher('/host_foot_point', FloatArray3, queue_size=10)
+    
+    # 设置发布的频率（10Hz）
+    rate = rospy.Rate(10)  # 10 Hz
+    # 创建一个Float32MultiArray消息
+    msg = FloatArray3()
     for i,r in enumerate(results):
         if not face_detected:
             face_ids,face_locations,_ = face_detector.detect_faces(r.orig_img)
-            host_id = 0
+
             if len(face_ids) > 0 and host_id in face_ids:
                 flag = people_id.init(yolo.predictor.trackers[0].active_tracks, face_ids, face_locations)
                 if flag:
                     face_detected = True
+        else:
+            host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
+            if host_trajectory is not None and host_trajectory.history_observations is not None:
+                box = host_trajectory.history_observations[-1]
+                depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
+                foot_point = get_foot_point_from_bbox_and_depth(box,depth[0],intrinsics,scale=1000.0)
+                if foot_point:
+                    print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
+                    # 更新消息中的数据
+                    msg.x = foot_point[0] 
+                    msg.y = foot_point[1]
+                    msg.z = foot_point[2]
+                else:
+                    print("无法获取落脚点的 3D 坐标，可能是深度无效。")                    
 
+
+        # 打印日志，方便调试
+        rospy.loginfo("Publishing: %s,%s,%s", msg.x,msg.y,msg.z)
+        # 发布消息到话题
+        pub.publish(msg)
         if args.show is True:
             img = plot_results(yolo.predictor.trackers[0],people_id,r.orig_img, args.show_trajectories)
             cv2.imshow('BoxMOT', img)     
             key = cv2.waitKey(100) & 0xFF
             if key == ord(' ') or key == ord('q'):
                 break
-        
+        # 按照10Hz的频率发布
+        rate.sleep()
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m.pt", #WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m.engine", #WEIGHTS / 'yolov8n',
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='botsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
-    parser.add_argument('--source', type=str, default='/home/jiangziben/data/people_tracking/3d/1/Color/',#'0',
+    parser.add_argument('--source', type=str, default='/home/jiangziben/data/people_tracking/3d/follow/',#'0',
                         help='file/dir/URL/glob, 0 for webcam')
+    # parser.add_argument('--source', type=str, default='6',
+    #                     help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')
-    parser.add_argument('--conf', type=float, default=0.5,
+    parser.add_argument('--conf', type=float, default=0.4,
                         help='confidence threshold')
     parser.add_argument('--iou', type=float, default=0.7,
                         help='intersection over union (IoU) threshold for NMS')
-    parser.add_argument('--device', default='',
+    parser.add_argument('--device', default='0',
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show', action='store_true',
                         help='display tracking video results')
