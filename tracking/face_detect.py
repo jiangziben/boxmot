@@ -4,6 +4,8 @@ import numpy as np
 import os
 import cv2
 from ultralytics import YOLO
+from tracking.get_reid_feature import Reid_feature
+from sklearn.metrics.pairwise import cosine_similarity
 class FaceDetector:
     def __init__(self, host_image_path):
         # Load a sample picture and learn how to recognize it.
@@ -47,21 +49,57 @@ class FaceDetector:
     
 class FaceDetectorV2:
     def __init__(self, host_image_path):
-        # Load a sample picture and learn how to recognize it.
-        host_image = face_recognition.load_image_file(host_image_path)
-        face_locations = face_recognition.face_locations(host_image)
-        host_face_encoding = face_recognition.face_encodings(host_image,face_locations)[0]
+        self.yolo_model = YOLO("/home/jiangziben/CodeProject/boxmot/tracking/weights/yolov11m_best.pt")  # build from YAML and transfer weights
+        self.reid_model = Reid_feature("/home/jiangziben/CodeProject/boxmot/tracking/weights/osnet_x0_25_msmt17.pt")
+        self.known_face_encodings = []
+        self.known_face_names = []
+        self.known_face_ids = []
+        # 检查文件是否存在
+        query_file_path = os.path.join(host_image_path, 'query_features.npy')
+        names_file_path = os.path.join(host_image_path, 'names.npy')
+        ids_file_path = os.path.join(host_image_path, 'ids.npy')
+        if os.path.exists(query_file_path) and os.path.exists(names_file_path) and os.path.exists(ids_file_path):
+            self.known_face_encodings = np.load(query_file_path)
+            self.known_face_ids = np.load(ids_file_path)
+            self.known_face_names = np.load(names_file_path)
+            print("Files loaded successfully.")
+        else:
+            print("One or both files do not exist.")
+            self.known_face_encodings = np.ones((1, 512), dtype=np.int64)
+            # print(q, q.shape)
 
-        # Create arrays of known face encodings and their names
-        self.known_face_encodings = [
-            host_face_encoding
-        ]
-        self.known_face_names = [
-            "zk"
-        ]
-        self.yolo_model = YOLO("tracking/weights/yolov11m.pt")  # build from YAML and transfer weights
+            for i,person_name in enumerate(os.listdir(host_image_path)):
+                if not os.path.isdir(os.path.join(host_image_path, person_name)):
+                    continue
+                for image_name in os.listdir(os.path.join(host_image_path, person_name)):
+                    img = cv2.imread(os.path.join(host_image_path, person_name, image_name))
+                    boxes = self.yolo_model.predict(img)[0].boxes.data
+                    face_locations = []
+                    for box in boxes:
+                        x1, y1, x2, y2, conf, cls = box.cpu().numpy()
+                        if cls == 1:
+                            face_locations.append((y1,x2,y2,x1))
+                    face_encodings = self.face_encodings(img, face_locations)
+                    for face_encoding in face_encodings:
+                        self.known_face_encodings = np.concatenate((face_encoding, self.known_face_encodings), axis=0)
+                    self.known_face_ids.append(i)
+                self.known_face_names.append(person_name)
+            self.known_face_ids = self.known_face_ids[::-1]
+            self.known_face_ids.append(-1)
+            np.save(os.path.join(host_image_path, 'query_features'), self.known_face_encodings[:-1, :])
+            np.save(os.path.join(host_image_path, 'ids'), self.known_face_ids)  # save query
+            np.save(os.path.join(host_image_path, 'names'), self.known_face_names)  # save query
 
-    def detect_faces(self, unknown_image):
+    def face_encodings(self,img,face_locations):
+        face_encodings = []
+        for face_location in face_locations:
+            top, right, bottom, left = face_location
+            face_image = img[int(top):int(bottom), int(left):int(right)]
+            face_encoding = self.reid_model(face_image)
+            face_encodings.append(face_encoding)
+        return face_encodings
+
+    def detect_faces(self, unknown_image, threshold = 0.6):
         # Find all the faces and face encodings in the unknown image
         boxes = self.yolo_model.predict(unknown_image)[0].boxes.data
         face_locations = []
@@ -69,26 +107,17 @@ class FaceDetectorV2:
             x1, y1, x2, y2, conf, cls = box.cpu().numpy()
             if cls == 1:
                 face_locations.append((y1,x2,y2,x1))
-        face_encodings = face_recognition.face_encodings(unknown_image, face_locations)
+        face_encodings = self.face_encodings(unknown_image, face_locations)
         face_ids = []
         face_locations_x1y1x2y2 = []
         # Loop through each face found in the unknown image
         for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
             # See if the face is a match for the known face(s)
-            matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding,tolerance=0.4)
-
-            face_id = -1
-
-            # If a match was found in known_face_encodings, just use the first one.
-            # if True in matches:
-            #     first_match_index = matches.index(True)
-            #     name = known_face_names[first_match_index]
-
-            # Or instead, use the known face with the smallest distance to the new face
-            face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
-            best_match_index = np.argmin(face_distances)
-            if matches[best_match_index]:
-                face_id = best_match_index
+            cos_sim = cosine_similarity(face_encoding, self.known_face_encodings)
+            max_idx = np.argmax(cos_sim, axis=1)
+            maximum = np.max(cos_sim, axis=1)
+            max_idx[maximum < threshold] = -1
+            face_id = self.known_face_ids[max_idx[0]]      
             face_ids.append(face_id)
             face_locations_x1y1x2y2.append((left,top,right,bottom))
         return face_ids,face_locations_x1y1x2y2,face_encodings
@@ -111,7 +140,7 @@ def get_images_in_folder(folder_path):
 if __name__ == "__main__":
     # This is an example of running face recognition on a single image
     # and drawing a box around each person that was identified.
-    face_detector = FaceDetector("/home/jiangziben/data/people_tracking/known_people/zk/zk6.jpeg")
+    face_detector = FaceDetectorV2("/home/jiangziben/data/people_tracking/known_people/")
 
     # Load an image with an unknown face
     folder_path = "/home/jiangziben/data/people_tracking/zk"
