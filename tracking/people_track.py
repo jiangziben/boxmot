@@ -18,6 +18,9 @@ checker = RequirementsChecker()
 checker.check_packages(('ultralytics @ git+https://github.com/mikel-brostrom/ultralytics.git', ))  # install
 import sys
 import os
+# 获取当前脚本路径
+script_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(script_path, "../third_party/ultralytics")) # add ultralytics to path
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
@@ -26,7 +29,7 @@ from tracking.face_detect import FaceDetector
 import time
 from tracking.get_3d_pos import get_foot_point_from_bbox_and_depth
 import rospy
-from people_tracking.msg import FloatArray3
+from geometry_msgs.msg import PoseStamped
 
 class PersonInfo:
     def __init__(self, track_id, name_id, face_box):
@@ -274,16 +277,17 @@ def run(args):
     # 初始化ROS节点
     rospy.init_node('people_tracking_node', anonymous=True)
     
-    # 创建一个发布者，发布到 /float_array 话题上，消息类型为 Float32MultiArray
-    pub = rospy.Publisher('/host_foot_point', FloatArray3, queue_size=10)
+    # 创建一个PoseStamped消息
+    pose_msg = PoseStamped()
+    # 创建一个发布者，发布到 /float_array 话题上，消息类型为 PoseStamped
+    pub = rospy.Publisher('/host_foot_point', PoseStamped, queue_size=10)
     
     # 设置发布的频率（10Hz）
     rate = rospy.Rate(10)  # 10 Hz
-    # 创建一个Float32MultiArray消息
-    msg = FloatArray3()
+
     for i,r in enumerate(results):
         if rospy.is_shutdown():
-            break            
+            break      
         if not face_detected:
             face_ids,face_locations,_ = face_detector.detect_faces(r.orig_img)
 
@@ -295,22 +299,35 @@ def run(args):
             host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
             if host_trajectory is not None and host_trajectory.history_observations is not None:
                 box = host_trajectory.history_observations[-1]
-                # depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
-                # foot_point = get_foot_point_from_bbox_and_depth(box,depth[0],intrinsics,scale=1000.0)
-                # if foot_point:
-                #     print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
-                #     # 更新消息中的数据
-                #     msg.x = foot_point[0] 
-                #     msg.y = foot_point[1]
-                #     msg.z = foot_point[2]
-                # else:
-                #     print("无法获取落脚点的 3D 坐标，可能是深度无效。")                    
+                depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
+                foot_point = get_foot_point_from_bbox_and_depth(box,depth[0],intrinsics,scale=1000.0)
+                if foot_point:
+                    # print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
+                    # 更新消息中的数据
 
+                    pose_msg.header.frame_id = "dog"  # 设置坐标系frame_id
 
-        # 打印日志，方便调试
-        rospy.loginfo("Publishing: %s,%s,%s", msg.x,msg.y,msg.z)
+                    # 设置位置 (x, y, z)
+                    pose_msg.pose.position.x = foot_point[0]
+                    pose_msg.pose.position.y = foot_point[1]
+                    pose_msg.pose.position.z = foot_point[2]
+
+                    # 设置方向 (以四元数表示)
+                    pose_msg.pose.orientation.x = 0.0
+                    pose_msg.pose.orientation.y = 0.0
+                    pose_msg.pose.orientation.z = 0.0
+                    pose_msg.pose.orientation.w = 1.0
+
+                else:
+                    print("无法获取落脚点的 3D 坐标，可能是深度无效。")                    
+
+        # 填充header信息
+        pose_msg.header.stamp = rospy.Time.now()        
         # 发布消息到话题
-        pub.publish(msg)
+        pub.publish(pose_msg)
+        # 打印日志，方便调试
+        rospy.loginfo("Publishing: %s,%s,%s", pose_msg.pose.position.x,pose_msg.pose.position.y,pose_msg.pose.position.z)
+        
         if args.show is True:
             img = plot_results(yolo.predictor.trackers[0],people_id,r.orig_img, args.show_trajectories)
             cv2.imshow('BoxMOT', img)     
@@ -322,13 +339,13 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m_best.pt", #WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m.engine", #WEIGHTS / 'yolov8n',
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='botsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
-    parser.add_argument('--source', type=str, default='/home/jiangziben/data/people_tracking/3d/test',#'0',
+    parser.add_argument('--source', type=str, default='/home/jiangziben/data/people_tracking/3d/follow/',#'0',
                         help='file/dir/URL/glob, 0 for webcam')
     # parser.add_argument('--source', type=str, default='6',
     #                     help='file/dir/URL/glob, 0 for webcam')
@@ -375,7 +392,7 @@ def parse_opt():
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
-    parser.add_argument('--host_image_path', type=str, default="/home/jiangziben/data/people_tracking/known_people/jzb/jzb.png",
+    parser.add_argument('--host_image_path', type=str, default="/home/jiangziben/data/people_tracking/known_people/zk/zk.png",
                         help='host image path')
 
     opt = parser.parse_args()
