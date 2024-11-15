@@ -59,7 +59,7 @@ class FaceDetectorV2:
         self.known_face_names = [
             "zk"
         ]
-        self.yolo_model = YOLO("tracking/weights/yolov11m.pt")  # build from YAML and transfer weights
+        self.yolo_model = YOLO("tracking/weights/yolov11m_best.pt")  # build from YAML and transfer weights
 
     def detect_faces(self, unknown_image):
         # Find all the faces and face encodings in the unknown image
