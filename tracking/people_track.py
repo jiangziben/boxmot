@@ -31,6 +31,10 @@ from tracking.get_3d_pos import get_foot_point_from_bbox_and_depth
 import rospy
 from geometry_msgs.msg import PoseStamped
 
+import threading
+from ultralytics.utils.node import ListenerNode
+import rospy
+
 class PersonInfo:
     def __init__(self, track_id, name_id, face_box):
         self.track_id = track_id
@@ -275,7 +279,7 @@ def run(args):
     face_detected = False
     host_id = 0
     # 初始化ROS节点
-    rospy.init_node('people_tracking_node', anonymous=True)
+    # rospy.init_node('people_tracking_node', anonymous=True)
     
     # 创建一个PoseStamped消息
     pose_msg = PoseStamped()
@@ -345,10 +349,12 @@ def parse_opt():
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='botsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
-    parser.add_argument('--source', type=str, default='/home/jiangziben/data/people_tracking/3d/follow/',#'0',
-                        help='file/dir/URL/glob, 0 for webcam')
+    # parser.add_argument('--source', type=str, default='/home/jiangziben/data/people_tracking/3d/follow/',#'0',
+    #                     help='file/dir/URL/glob, 0 for webcam')
     # parser.add_argument('--source', type=str, default='6',
     #                     help='file/dir/URL/glob, 0 for webcam')
+    parser.add_argument('--source', type=str, default='ros',#'0' 'ros',
+                        help='file/dir/URL/glob, 0 for webcam, ros')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')
     parser.add_argument('--conf', type=float, default=0.4,
@@ -401,4 +407,14 @@ def parse_opt():
 
 if __name__ == "__main__":
     opt = parse_opt()
-    run(opt)
+
+    if opt.source != 'ros':
+        run(opt)
+    else:
+        run_thread = threading.Thread(target=run, args=(opt,)) 
+        run_thread.start()  
+        try:  
+            listener = ListenerNode()  
+            listener.spin()  
+        except rospy.ROSInterruptException:  
+            pass  

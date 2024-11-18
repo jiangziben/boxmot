@@ -14,6 +14,7 @@ from ultralytics.data.loaders import (
     LOADERS,
     LoadImagesAndVideos,
     LoadPilAndNumpy,
+    LoadRos,
     LoadScreenshots,
     LoadStreams,
     LoadTensor,
@@ -199,6 +200,8 @@ def load_inference_source(source=None, batch=1, vid_stride=1, buffer=False):
         dataset = LoadScreenshots(source)
     elif from_img:
         dataset = LoadPilAndNumpy(source)
+    elif source == "ros":
+        dataset = LoadRos(source)
     else:
         dataset = LoadImagesAndVideos(source, batch=batch, vid_stride=vid_stride)
 
