@@ -21,6 +21,7 @@ import os
 # 获取当前脚本路径
 script_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(script_path, "../third_party/ultralytics")) # add ultralytics to path
+
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
