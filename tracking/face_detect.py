@@ -6,6 +6,8 @@ import cv2
 from ultralytics import YOLO
 from tracking.get_reid_feature import Reid_feature
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import euclidean_distances
+from pathlib import PosixPath
 class FaceDetector:
     def __init__(self, host_image_path):
         # Load a sample picture and learn how to recognize it.
@@ -48,9 +50,15 @@ class FaceDetector:
         return face_ids,face_locations_x1y1x2y2,face_encodings
     
 class FaceDetectorV2:
-    def __init__(self, host_image_path):
-        self.yolo_model = YOLO("/home/jiangziben/CodeProject/boxmot/tracking/weights/yolov11m_best.pt")  # build from YAML and transfer weights
-        self.reid_model = Reid_feature("/home/jiangziben/CodeProject/boxmot/tracking/weights/osnet_x0_25_msmt17.pt")
+    def __init__(self,detection_model,reid_model, host_image_path):
+        if isinstance(detection_model, str) or isinstance(detection_model, PosixPath):
+            self.detection_model = YOLO(detection_model)  # build from YAML and transfer weights
+        else:
+            self.detection_model = detection_model
+        if isinstance(reid_model, str) or isinstance(detection_model, PosixPath):
+            self.reid_model = Reid_feature(reid_model)
+        else:
+            self.reid_model = reid_model
         self.known_face_encodings = []
         self.known_face_names = []
         self.known_face_ids = []
@@ -65,7 +73,7 @@ class FaceDetectorV2:
             print("Files loaded successfully.")
         else:
             print("One or both files do not exist.")
-            self.known_face_encodings = np.ones((1, 512), dtype=np.int64)
+            self.known_face_encodings = np.ones((1,128), dtype=np.int64)
             # print(q, q.shape)
 
             for i,person_name in enumerate(os.listdir(host_image_path)):
@@ -73,15 +81,16 @@ class FaceDetectorV2:
                     continue
                 for image_name in os.listdir(os.path.join(host_image_path, person_name)):
                     img = cv2.imread(os.path.join(host_image_path, person_name, image_name))
-                    boxes = self.yolo_model.predict(img)[0].boxes.data
+                    boxes = self.detection_model.predict(img)[0].boxes.data
                     face_locations = []
                     for box in boxes:
                         x1, y1, x2, y2, conf, cls = box.cpu().numpy()
                         if cls == 1:
                             face_locations.append((y1,x2,y2,x1))
-                    face_encodings = self.face_encodings(img, face_locations)
+                    face_encodings = face_recognition.face_encodings(img,face_locations)
+                    # face_encodings = self.face_encodings(img,face_locations)
                     for face_encoding in face_encodings:
-                        self.known_face_encodings = np.concatenate((face_encoding, self.known_face_encodings), axis=0)
+                        self.known_face_encodings = np.concatenate((face_encoding[np.newaxis,:], self.known_face_encodings), axis=0)
                     self.known_face_ids.append(i)
                 self.known_face_names.append(person_name)
             self.known_face_ids = self.known_face_ids[::-1]
@@ -99,25 +108,31 @@ class FaceDetectorV2:
             face_encodings.append(face_encoding)
         return face_encodings
 
-    def detect_faces(self, unknown_image, threshold = 0.6):
+    def detect_faces(self, unknown_image, threshold = 0.4):
         # Find all the faces and face encodings in the unknown image
-        boxes = self.yolo_model.predict(unknown_image)[0].boxes.data
+        boxes = self.detection_model.predict(unknown_image)[0].boxes.data
         face_locations = []
         for box in boxes:
             x1, y1, x2, y2, conf, cls = box.cpu().numpy()
             if cls == 1:
                 face_locations.append((y1,x2,y2,x1))
-        face_encodings = self.face_encodings(unknown_image, face_locations)
+        face_encodings = face_recognition.face_encodings(unknown_image,face_locations)
+        # face_encodings = self.face_encodings(unknown_image,face_locations)
         face_ids = []
         face_locations_x1y1x2y2 = []
         # Loop through each face found in the unknown image
         for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
             # See if the face is a match for the known face(s)
-            cos_sim = cosine_similarity(face_encoding, self.known_face_encodings)
-            max_idx = np.argmax(cos_sim, axis=1)
-            maximum = np.max(cos_sim, axis=1)
-            max_idx[maximum < threshold] = -1
-            face_id = self.known_face_ids[max_idx[0]]      
+            # cos_sim = cosine_similarity(face_encoding[np.newaxis, :], self.known_face_encodings)
+            # max_idx = np.argmax(cos_sim, axis=1)
+            # maximum = np.max(cos_sim, axis=1)
+            # max_idx[maximum < threshold] = -1
+            # face_id = self.known_face_ids[max_idx[0]]
+            euclidean_sim = euclidean_distances(face_encoding[np.newaxis, :], self.known_face_encodings)
+            min_idx = np.argmin(euclidean_sim, axis=1)
+            minimun = np.min(euclidean_sim, axis=1)
+            min_idx[minimun > threshold] = -1
+            face_id = self.known_face_ids[min_idx[0]]      
             face_ids.append(face_id)
             face_locations_x1y1x2y2.append((left,top,right,bottom))
         return face_ids,face_locations_x1y1x2y2,face_encodings
@@ -135,15 +150,18 @@ def get_images_in_folder(folder_path):
         for file in files:
             if any(file.lower().endswith(ext) for ext in image_extensions):
                 images.append(os.path.join(root, file))
-
+    # 按照文件的修改时间进行排序
+    images.sort(key=lambda x: os.path.getmtime(x))
     return images 
 if __name__ == "__main__":
     # This is an example of running face recognition on a single image
     # and drawing a box around each person that was identified.
-    face_detector = FaceDetectorV2("/home/jiangziben/data/people_tracking/known_people/")
-
+    # face_detector = FaceDetectorV2("/home/jiangziben/CodeProject/boxmot/tracking/weights/yolov11m_best.pt",
+    #                                "/home/jiangziben/CodeProject/boxmot/tracking/weights/osnet_x0_25_msmt17.pt",
+    #                                "/home/jiangziben/data/people_tracking/known_people/")
+    face_detector = FaceDetector("/home/jiangziben/data/people_tracking/known_people/zk/zk.png")
     # Load an image with an unknown face
-    folder_path = "/home/jiangziben/data/people_tracking/zk"
+    folder_path = "/home/jiangziben/data/people_tracking/multi_people/"
     person_name = folder_path.split("/")[-1]
     images_path = get_images_in_folder(folder_path)
     num_all = len(images_path)
@@ -179,7 +197,10 @@ if __name__ == "__main__":
         # pil_image.show()
         cv2.imshow('image',np.array(pil_image))
         cv2.waitKey(0)
-    accuracy = num_right / num_all 
+    if num_all > 0:
+        accuracy = num_right / num_all
+    else:
+        accuracy = 0
     print(f"accuracy: {accuracy*100.0:.2f} %")
     # You can also save a copy of the new image to disk if you want by uncommenting this line
     # pil_image.save("image_with_boxes.jpg")

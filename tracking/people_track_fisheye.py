@@ -22,7 +22,7 @@ from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
 from ultralytics.utils.plotting import save_one_box
-from tracking.face_detect import FaceDetector
+from tracking.face_detect import FaceDetector,FaceDetectorV2
 import time
 from tracking.get_3d_pos import get_foot_point_from_bbox_and_depth
 import rospy
@@ -268,10 +268,10 @@ def run(args):
 
     # store custom args in predictor
     yolo.predictor.custom_args = args
-    face_detector = FaceDetector(args.host_image_path)
+    face_detector = FaceDetectorV2(args.yolo_model,args.reid_model,args.host_image_path)
     people_id = PeopleId(face_detector.known_face_names)
     face_detected = False
-    host_id = 0
+    host_id = 2
     # 初始化ROS节点
     rospy.init_node('people_tracking_node', anonymous=True)
     
@@ -386,7 +386,7 @@ def parse_opt():
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
-    parser.add_argument('--host_image_path', type=str, default="/home/jiangziben/data/people_tracking/known_people/jzb/jzb.png",
+    parser.add_argument('--host_image_path', type=str, default="/home/jiangziben/data/people_tracking/known_people",
                         help='host image path')
 
     opt = parser.parse_args()

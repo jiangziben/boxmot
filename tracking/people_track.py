@@ -25,7 +25,7 @@ from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
 from ultralytics.utils.plotting import save_one_box
-from tracking.face_detect import FaceDetector
+from tracking.face_detect import FaceDetector,FaceDetectorV2
 import time
 from tracking.get_3d_pos import get_foot_point_from_bbox_and_depth
 import rospy
@@ -270,10 +270,10 @@ def run(args):
 
     # store custom args in predictor
     yolo.predictor.custom_args = args
-    face_detector = FaceDetector(args.host_image_path)
+    face_detector = FaceDetectorV2(args.yolo_model,args.reid_model, args.host_image_path)
     people_id = PeopleId(face_detector.known_face_names)
     face_detected = False
-    host_id = 0
+    host_id = 2
     # 初始化ROS节点
     rospy.init_node('people_tracking_node', anonymous=True)
     
@@ -305,7 +305,6 @@ def run(args):
                     # print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
                     # 更新消息中的数据
 
-                    pose_msg.header.frame_id = "dog"  # 设置坐标系frame_id
 
                     # 设置位置 (x, y, z)
                     pose_msg.pose.position.x = foot_point[0]
@@ -320,9 +319,21 @@ def run(args):
 
                 else:
                     print("无法获取落脚点的 3D 坐标，可能是深度无效。")                    
+            else:
+                # 设置位置 (x, y, z)
+                pose_msg.pose.position.x = 0
+                pose_msg.pose.position.y = 0
+                pose_msg.pose.position.z = 0
 
+                # 设置方向 (以四元数表示)
+                pose_msg.pose.orientation.x = 0.0
+                pose_msg.pose.orientation.y = 0.0
+                pose_msg.pose.orientation.z = 0.0
+                pose_msg.pose.orientation.w = 1.0
+                face_detected = False
         # 填充header信息
-        pose_msg.header.stamp = rospy.Time.now()        
+        pose_msg.header.stamp = rospy.Time.now()  
+        pose_msg.header.frame_id = "dog"  # 设置坐标系frame_id
         # 发布消息到话题
         pub.publish(pose_msg)
         # 打印日志，方便调试
@@ -341,7 +352,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m_best.engine", #WEIGHTS / 'yolov8n',
                         help='yolo model path')
-    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
+    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.engine',
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='botsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
@@ -392,7 +403,7 @@ def parse_opt():
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
-    parser.add_argument('--host_image_path', type=str, default="/home/jiangziben/data/people_tracking/known_people/zk/zk.png",
+    parser.add_argument('--host_image_path', type=str, default="/home/jiangziben/data/people_tracking/known_people/",
                         help='host image path')
 
     opt = parser.parse_args()

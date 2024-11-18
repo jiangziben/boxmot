@@ -278,7 +278,7 @@ class LoadScreenshots:
         s = f"screen {self.screen} (LTWH): {self.left},{self.top},{self.width},{self.height}: "
 
         self.frame += 1
-        return [str(self.screen)], [im0], [s]  # screen, img, string
+        return [str(self.screen)], [im0], [s],[]  # screen, img, string
 
 
 class LoadImagesAndVideos:
@@ -515,7 +515,7 @@ class LoadPilAndNumpy:
         if self.count == 1:  # loop only once as it's batch inference
             raise StopIteration
         self.count += 1
-        return self.paths, self.im0, [""] * self.bs
+        return self.paths, self.im0, [""] * self.bs, [""] * self.bs
 
     def __iter__(self):
         """Iterates through PIL/numpy images, yielding paths, raw images, and metadata for processing."""
@@ -587,7 +587,7 @@ class LoadTensor:
         if self.count == 1:
             raise StopIteration
         self.count += 1
-        return self.paths, self.im0, [""] * self.bs
+        return self.paths, self.im0, [""] * self.bs, [""] * self.bs
 
     def __len__(self):
         """Returns the batch size of the tensor input."""
