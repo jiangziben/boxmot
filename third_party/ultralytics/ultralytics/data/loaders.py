@@ -20,6 +20,8 @@ from ultralytics.utils import IS_COLAB, IS_KAGGLE, LOGGER, ops
 from ultralytics.utils.checks import check_requirements
 from ultralytics.utils.patches import imread
 
+from ultralytics.utils.node import color_queue
+from ultralytics.utils.node import lock
 
 @dataclass
 class SourceTypes:
@@ -47,6 +49,39 @@ class SourceTypes:
     from_img: bool = False
     tensor: bool = False
 
+class LoadRos:
+
+    def __init__(self, sources):
+        """Initialize stream loader for multiple video sources, supporting various stream types."""
+        self.running = True  # running flag for Thread
+        self.mode = "stream"
+        self.n = 1
+        self.bs = 1
+        # self.threads = Thread(target=self.ros_thread, daemon=True)
+        # self.threads.start()
+        self.sources = ['0']
+        LOGGER.info("")  # newline
+
+    def __iter__(self):
+        """Iterates through YOLO image feed and re-opens unresponsive streams."""
+        self.count = -1
+        return self
+
+    def __next__(self):
+        """Returns the next batch of frames from multiple video streams for processing."""
+        self.count += 1
+
+        images = []
+        with lock: 
+            # 获取队列中的最后一个数据  
+            if color_queue:  
+                # 读取队列中的所有数据，保留最后一个  
+                last_item = color_queue.pop()  
+                images = [last_item]
+            else:  
+              LOGGER.warning("Queue is empty, nothing to read.")  
+
+        return self.sources, images, [""] * self.bs, np.zeros_like(images)
 
 class LoadStreams:
     """
