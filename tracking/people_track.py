@@ -10,7 +10,7 @@ import torch
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
-from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS
+from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS,DATA
 from boxmot.utils.checks import RequirementsChecker
 from tracking.detectors import get_yolo_inferer
 
@@ -21,6 +21,7 @@ import os
 # 获取当前脚本路径
 script_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(script_path, "../third_party/ultralytics")) # add ultralytics to path
+
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
@@ -38,8 +39,8 @@ import rospy
 host_id = 2
 # 相机内参矩阵 (fx, fy, cx, cy)
 intrinsics = np.array([
-    [687.633179, 0, 638.220703],  # fx, 0, cx
-    [0, 687.575684, 356.474426],  # 0, fy, cy
+    [1031.449707, 0, 957.330994],  # fx, 0, cx
+    [0, 1031.363525, 534.711609],  # 0, fy, cy
     [0, 0, 1]           # 0, 0, 1
 ])
 
@@ -132,64 +133,6 @@ def on_predict_start(predictor, persist=False):
         trackers.append(tracker)
 
     predictor.trackers = trackers
-
-# def on_predict_postprocess_end(predictor: object, persist: bool = False, intrinsics: np.ndarray = None) -> None:
-#     """
-#     Postprocess detected boxes and update with object tracking.
-
-#     Args:
-#         predictor (object): The predictor object containing the predictions.
-#         persist (bool): Whether to persist the trackers if they already exist.
-
-#     Examples:
-#         Postprocess predictions and update with tracking
-#         >>> predictor = YourPredictorClass()
-#         >>> on_predict_postprocess_end(predictor, persist=True)
-#     """
-#     depths = predictor.batch[3] if len(predictor.batch) == 4 else None
-
-#     is_obb = predictor.args.task == "obb"
-#     is_stream = predictor.dataset.mode == "stream"
-#     for i in range(len(depths)):
-#         det = (predictor.results[i].obb if is_obb else predictor.results[i].boxes.data).cpu().numpy()
-#         if len(det) == 0:
-#             continue
-#         # predictor.results[i] = predictor.results[i]
-
-#         # update_args = {"obb" if is_obb else "boxes": torch.as_tensor(tracks[:, :-1])}
-#         # predictor.results[i].update(**update_args)
-
-#         # boxes = predictor.results[i].boxes.data
-#         # for box in boxes:
-#         #     x1, y1, x2, y2,id, conf, cls = box.cpu().numpy()
-#         #     if cls == 0:         
-#         #         # 获取落脚点的 3D 坐标
-#         #         foot_point = get_foot_point_from_bbox_and_depth((x1,y1,x2,y2), depths[i], intrinsics)
-
-#         #         if foot_point:
-#         #             print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
-#         #             predictor.results[i] = predictor.results[i][idx]
-
-#         #             update_args = {"pos_3d": torch.as_tensor(tracks[:, :-1])}
-#         #             predictor.results[i].update(**update_args)
-#         #         else:
-#         #             print("无法获取落脚点的 3D 坐标，可能是深度无效。")    
-#     #     tracker = predictor.trackers[i if is_stream else 0]
-#     #     vid_path = predictor.save_dir / Path(path[i]).name
-#     #     if not persist and predictor.vid_path[i if is_stream else 0] != vid_path:
-#     #         predictor.vid_path[i if is_stream else 0] = vid_path
-
-#     #     det = (predictor.results[i].obb if is_obb else predictor.results[i].boxes.data).cpu().numpy()
-#     #     if len(det) == 0:
-#     #         continue
-#     #     tracks = tracker.update(det, im0s[i])
-#     #     if len(tracks) == 0:
-#     #         continue
-#     #     idx = tracks[:, -1].astype(int)
-#     #     predictor.results[i] = predictor.results[i][idx]
-
-#     #     update_args = {"obb" if is_obb else "boxes": torch.as_tensor(tracks[:, :-1])}
-#     #     predictor.results[i].update(**update_args)
 
 def plot_results(self, people_id:PeopleId, img: np.ndarray, show_trajectories: bool, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
     """
@@ -368,8 +311,8 @@ def parse_opt():
     #                     help='file/dir/URL/glob, 0 for webcam')
     # parser.add_argument('--source', type=str, default='6',
     #                     help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--source', type=str, default='ros',#'0' 'ros',
-                        help='file/dir/URL/glob, 0 for webcam, ros')
+    parser.add_argument('--source', type=str, default=DATA / "known_people/",
+                        help='file/dir/URL/glob/ros, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')
     parser.add_argument('--conf', type=float, default=0.4,
@@ -413,7 +356,7 @@ def parse_opt():
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
-    parser.add_argument('--host_image_path', type=str, default="/home/jiangziben/data/people_tracking/known_people/",
+    parser.add_argument('--host_image_path', type=str, default= DATA / "known_people/",
                         help='host image path')
 
     opt = parser.parse_args()
