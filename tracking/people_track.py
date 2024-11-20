@@ -35,6 +35,15 @@ import threading
 from ultralytics.utils.node import ListenerNode
 import rospy
 
+host_id = 2
+# 相机内参矩阵 (fx, fy, cx, cy)
+intrinsics = np.array([
+    [687.633179, 0, 638.220703],  # fx, 0, cx
+    [0, 687.575684, 356.474426],  # 0, fy, cy
+    [0, 0, 1]           # 0, 0, 1
+])
+
+
 class PersonInfo:
     def __init__(self, track_id, name_id, face_box):
         self.track_id = track_id
@@ -225,12 +234,7 @@ def plot_results(self, people_id:PeopleId, img: np.ndarray, show_trajectories: b
 
 @torch.no_grad()
 def run(args):
-    # 相机内参矩阵 (fx, fy, cx, cy)
-    intrinsics = np.array([
-        [687.633179, 0, 638.220703],  # fx, 0, cx
-        [0, 687.575684, 356.474426],  # 0, fy, cy
-        [0, 0, 1]           # 0, 0, 1
-    ])
+
     ul_models = ['yolov8', 'yolov9', 'yolov10', 'yolov11', 'rtdetr', 'sam']
 
     yolo = YOLO(
@@ -277,7 +281,7 @@ def run(args):
     face_detector = FaceDetectorV2(args.yolo_model,args.reid_model, args.host_image_path)
     people_id = PeopleId(face_detector.known_face_names)
     face_detected = False
-    host_id = 2
+
     # 初始化ROS节点
     # rospy.init_node('people_tracking_node', anonymous=True)
     
