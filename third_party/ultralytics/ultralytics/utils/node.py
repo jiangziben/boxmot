@@ -10,8 +10,6 @@ lock = threading.Lock()
 
 class ListenerNode:  
     def __init__(self):  
-        rospy.init_node('tracking', anonymous=True)
-
         # Subscribe to the color image topic  
         rospy.Subscriber('/camera/color/image_raw', Image, self.image_callback)
 

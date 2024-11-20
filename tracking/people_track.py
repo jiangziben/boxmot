@@ -417,14 +417,14 @@ def parse_opt():
 
 
 if __name__ == "__main__":
+    rospy.init_node('tracking', anonymous=True)
     opt = parse_opt()
-
-    if opt.source != 'ros':
+    if opt.source != 'ros':   
         run(opt)
     else:
-        run_thread = threading.Thread(target=run, args=(opt,)) 
-        run_thread.start()  
-        try:  
+        try: 
+            run_thread = threading.Thread(target=run, args=(opt,)) 
+            run_thread.start()              
             listener = ListenerNode()  
             listener.spin()  
         except rospy.ROSInterruptException:  

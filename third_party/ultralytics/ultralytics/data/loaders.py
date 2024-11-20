@@ -238,7 +238,7 @@ class LoadStreams:
                 images.append(x.pop(-1) if x else np.zeros(self.shape[i], dtype=np.uint8))
                 x.clear()
 
-        return self.sources, images, [""] * self.bs
+        return self.sources, images, [""] * self.bs, np.zeros_like(images)
 
     def __len__(self):
         """Return the number of video streams in the LoadStreams object."""
