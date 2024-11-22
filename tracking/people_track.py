@@ -26,9 +26,10 @@ from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
 from ultralytics.utils.plotting import save_one_box
-from tracking.face_detect import FaceDetector,FaceDetectorV2
+from ultralytics.engine.results import Results
+from tracking.face_detect import FaceDetector,FaceDetectorV2,FaceDetectorV3
 import time
-from tracking.get_3d_pos import get_foot_point_from_bbox_and_depth
+from tracking.get_3d_pos import get_foot_point_from_bbox_and_depth,get_foot_point_from_keypoints_and_depth
 import rospy
 from geometry_msgs.msg import PoseStamped
 
@@ -36,7 +37,7 @@ import threading
 from ultralytics.utils.node import ListenerNode
 import rospy
 
-host_id = 2
+host_name = 'zk'
 # 相机内参矩阵 (fx, fy, cx, cy)
 intrinsics = np.array([
     [1031.449707, 0, 957.330994],  # fx, 0, cx
@@ -46,10 +47,11 @@ intrinsics = np.array([
 
 
 class PersonInfo:
-    def __init__(self, track_id, name_id, face_box):
+    def __init__(self, track_id, name_id, face_box,keypoints):
         self.track_id = track_id
         self.name_id  = name_id
         self.face_box = face_box
+        self.keypoints = keypoints
 
 class PeopleId:
     def __init__(self,known_people_names):
@@ -70,19 +72,16 @@ class PeopleId:
         return (boxA[0] >= boxB[0] and boxA[1] >= boxB[1] and
                 boxA[2] <= boxB[2] and boxA[3] <= boxB[3])
     
-    def init(self,active_tracks, face_names, face_locations):
-        for active_track in active_tracks:
-            if 0 == int(active_track.cls): # only track people
-                if active_track.history_observations:
-                    if len(active_track.history_observations) > 2:
-                        box = active_track.history_observations[-1]
-                        person_info = PersonInfo(active_track.id, -1, box)
-                        for face_location in face_locations:
-                            if self.is_box_inside(face_location, box[0:4]):
-                                name_id = face_names[face_locations.index(face_location)]
-                                person_info.name_id = name_id
-                                self.people_id[active_track.id] = person_info
-                                return True
+    def init(self,result,face_names, face_locations):
+        for i,box in enumerate(result.boxes.data):
+            track_id = int(box[4])
+            person_info = PersonInfo(track_id, -1, box,result.keypoints.data[i])
+            for face_location in face_locations:
+                if self.is_box_inside(face_location, box[0:4]):
+                    name_id = face_names[face_locations.index(face_location)]
+                    person_info.name_id = name_id
+                    self.people_id[track_id] = person_info
+                    return True
         return False
     def get_person_id(self,track_id):
         if track_id in self.people_id:
@@ -102,7 +101,12 @@ class PeopleId:
                 if active_track.id == track_id:
                     return active_track
         return None
-
+    def get_keypoints(self,name_id):
+        track_id = self.get_track_id(name_id)
+        if track_id in self.people_id:
+            return self.people_id[track_id].keypoints
+        else:
+            return None
 
 def on_predict_start(predictor, persist=False):
     """
@@ -134,7 +138,7 @@ def on_predict_start(predictor, persist=False):
 
     predictor.trackers = trackers
 
-def plot_results(self, people_id:PeopleId, img: np.ndarray, show_trajectories: bool, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
+def plot_results(self,results:Results, people_id:PeopleId, img: np.ndarray, show_trajectories: bool, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
     """
     Visualizes the trajectories of all active tracks on the image. For each track,
     it draws the latest bounding box and the path of movement if the history of
@@ -221,7 +225,7 @@ def run(args):
 
     # store custom args in predictor
     yolo.predictor.custom_args = args
-    face_detector = FaceDetectorV2(args.yolo_model,args.reid_model, args.host_image_path)
+    face_detector = FaceDetectorV3(args.yolo_model,args.reid_model, args.host_image_path)
     people_id = PeopleId(face_detector.known_face_names)
     face_detected = False
 
@@ -235,53 +239,49 @@ def run(args):
     
     # 设置发布的频率（10Hz）
     rate = rospy.Rate(10)  # 10 Hz
-
+    host_id = (face_detector.known_face_names == host_name).argmax()
     for i,r in enumerate(results):
         if rospy.is_shutdown():
             break      
-        if not face_detected:
-            face_ids,face_locations,_ = face_detector.detect_faces(r.orig_img)
-
-            if len(face_ids) > 0 and host_id in face_ids:
-                flag = people_id.init(yolo.predictor.trackers[0].active_tracks, face_ids, face_locations)
-                if flag:
-                    face_detected = True
-        else:
-            host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
-            if host_trajectory is not None and host_trajectory.history_observations is not None:
-                box = host_trajectory.history_observations[-1]
-                depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
-                foot_point = get_foot_point_from_bbox_and_depth(box,depth[0],intrinsics,scale=1000.0)
-                if foot_point:
-                    # print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
-                    # 更新消息中的数据
+        face_ids,face_locations,_,face_confidence = face_detector.detect_faces(r.orig_img)
+        if len(face_ids) > 0:
+            people_id.init(r, face_ids, face_locations)
+            
+        host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
+        keypoints = people_id.get_keypoints(host_id)
+        if host_trajectory is not None and host_trajectory.history_observations is not None and keypoints is not None:
+            depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
+            foot_point = get_foot_point_from_keypoints_and_depth(keypoints,depth[0],intrinsics,scale=1000.0)
+            if foot_point:
+                # print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
+                # 更新消息中的数据
 
 
-                    # 设置位置 (x, y, z)
-                    pose_msg.pose.position.x = foot_point[0]
-                    pose_msg.pose.position.y = foot_point[1]
-                    pose_msg.pose.position.z = foot_point[2]
-
-                    # 设置方向 (以四元数表示)
-                    pose_msg.pose.orientation.x = 0.0
-                    pose_msg.pose.orientation.y = 0.0
-                    pose_msg.pose.orientation.z = 0.0
-                    pose_msg.pose.orientation.w = 1.0
-
-                else:
-                    print("无法获取落脚点的 3D 坐标，可能是深度无效。")                    
-            else:
                 # 设置位置 (x, y, z)
-                pose_msg.pose.position.x = 0
-                pose_msg.pose.position.y = 0
-                pose_msg.pose.position.z = 0
+                pose_msg.pose.position.x = foot_point[0]
+                pose_msg.pose.position.y = foot_point[1]
+                pose_msg.pose.position.z = foot_point[2]
 
                 # 设置方向 (以四元数表示)
                 pose_msg.pose.orientation.x = 0.0
                 pose_msg.pose.orientation.y = 0.0
                 pose_msg.pose.orientation.z = 0.0
                 pose_msg.pose.orientation.w = 1.0
-                face_detected = False
+
+            else:
+                print("无法获取落脚点的 3D 坐标，可能是深度无效。")                    
+        else:
+            # 设置位置 (x, y, z)
+            pose_msg.pose.position.x = 0
+            pose_msg.pose.position.y = 0
+            pose_msg.pose.position.z = 0
+
+            # 设置方向 (以四元数表示)
+            pose_msg.pose.orientation.x = 0.0
+            pose_msg.pose.orientation.y = 0.0
+            pose_msg.pose.orientation.z = 0.0
+            pose_msg.pose.orientation.w = 1.0
+
         # 填充header信息
         pose_msg.header.stamp = rospy.Time.now()  
         pose_msg.header.frame_id = "dog"  # 设置坐标系frame_id
@@ -291,7 +291,8 @@ def run(args):
         rospy.loginfo("Publishing: %s,%s,%s", pose_msg.pose.position.x,pose_msg.pose.position.y,pose_msg.pose.position.z)
         
         if args.show is True:
-            img = plot_results(yolo.predictor.trackers[0],people_id,r.orig_img, args.show_trajectories)
+            img = plot_results(yolo.predictor.trackers[0],r,people_id,r.orig_img, args.show_trajectories)
+
             cv2.imshow('BoxMOT', img)     
             key = cv2.waitKey(100) & 0xFF
             if key == ord(' ') or key == ord('q'):
@@ -301,7 +302,7 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m_best.engine", #WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m-pose.pt", #WEIGHTS / 'yolov8n',
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.engine',
                         help='reid model path')
@@ -311,7 +312,7 @@ def parse_opt():
     #                     help='file/dir/URL/glob, 0 for webcam')
     # parser.add_argument('--source', type=str, default='6',
     #                     help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--source', type=str, default=DATA / "known_people/",
+    parser.add_argument('--source', type=str, default=DATA / "follow_simple/",
                         help='file/dir/URL/glob/ros, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')

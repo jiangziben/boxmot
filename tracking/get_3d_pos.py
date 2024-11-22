@@ -135,7 +135,43 @@ def get_foot_point_from_bbox_and_depth(bbox, depth_map, intrinsics, scale=1.0):
     else:
         # 如果深度值无效，则返回 None
         return None
-    
+
+def get_pos_from_keypoint(keypoint,depth_map, intrinsics, scale=1.0):
+    # 获取深度图中对应像素的深度值
+    roi_size = 10
+    if keypoint[2] > 0.5:
+        depth_foot = np.mean(depth_map[int(keypoint[1]-roi_size/2):int(keypoint[1]+roi_size/2), int(keypoint[0]-roi_size/2):int(keypoint[0]+roi_size/2)])/scale#depth_map[y_foot, x_foot]/1000.0
+    else:
+        return None
+    # 如果深度值有效（大于零）
+    if depth_foot > 0:
+        # 将像素坐标和深度值转换为相机坐标系下的 3D 坐标
+        X, Y, Z = pixel_to_camera_coordinates(keypoint[0], keypoint[1], depth_foot, intrinsics)
+        return X, Y, Z
+    else:
+        # 如果深度值无效，则返回 None
+        return None
+
+def get_foot_point_from_keypoints_and_depth(keypoints, depth_map, intrinsics, scale=1.0):
+    left_foot_index = 15  # 左眼的索引
+    right_foot_index = 16  # 右眼的索引 
+    keypoints_array = keypoints.cpu().numpy() 
+    if keypoints_array.shape[0] == 0:
+        return None
+    left_foot_keypoint = keypoints_array[left_foot_index,:]
+    right_foot_keypoint = keypoints_array[right_foot_index,:]
+    left_foot_pos = get_pos_from_keypoint(left_foot_keypoint,depth_map,intrinsics, scale)
+    right_foot_pos = get_pos_from_keypoint(right_foot_keypoint,depth_map,intrinsics, scale)
+    foot_pos = None
+    if left_foot_pos is not None and right_foot_pos is not None:
+        foot_pos = (left_foot_pos[0]+right_foot_pos[0])/2.0, (left_foot_pos[1]+right_foot_pos[1])/2.0, (left_foot_pos[2]+right_foot_pos[2])/2.0
+    elif left_foot_pos is not None:
+        foot_pos = left_foot_pos
+    elif right_foot_pos is not None:
+        foot_pos = right_foot_pos
+    return foot_pos
+
+
 def get_images_in_folder(folder_path):
     """
     获取指定文件夹下所有图片文件
@@ -165,18 +201,27 @@ if __name__ == "__main__":
         [0, 0, 1]           # 0, 0, 1
     ])
 
-    yolo_model = YOLO("tracking/weights/yolov11m.pt")  # build from YAML and transfer weights
+    yolo_model = YOLO("tracking/weights/yolov11m-pose.pt")  # build from YAML and transfer weights
     for image_path,depth_map_path in zip(images_path,depth_images_path):
         image = cv2.imread(image_path)  # 2D 图像
         depth_map = cv2.imread(depth_map_path, cv2.IMREAD_UNCHANGED)  # 深度图
-        boxes = yolo_model.predict(image,verbose=False)[0].boxes.data
-        for box in boxes:
-            x1, y1, x2, y2, conf, cls = box.cpu().numpy()
-            if cls == 0:         
-                # 获取落脚点的 3D 坐标
-                foot_point = get_foot_point_from_bbox_and_depth((x1,y1,x2,y2), depth_map, intrinsics)
+        # boxes = yolo_model.predict(image,verbose=False)[0].boxes.data
+        # for box in boxes:
+        #     x1, y1, x2, y2, conf, cls = box.cpu().numpy()
+        #     if cls == 0:         
+        #         # 获取落脚点的 3D 坐标
+        #         foot_point = get_foot_point_from_keypoints_and_depth((x1,y1,x2,y2), depth_map, intrinsics)
 
-                if foot_point:
-                    print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
-                else:
-                    print("无法获取落脚点的 3D 坐标，可能是深度无效。")
+        #         if foot_point:
+        #             print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
+        #         else:
+        #             print("无法获取落脚点的 3D 坐标，可能是深度无效。")
+        keypoints = yolo_model.predict(image,verbose=False)[0].keypoints.data
+        for keypoint in keypoints:
+            # 获取落脚点的 3D 坐标
+            foot_point = get_foot_point_from_keypoints_and_depth(keypoint, depth_map, intrinsics)
+
+            if foot_point:
+                print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
+            else:
+                print("无法获取落脚点的 3D 坐标，可能是深度无效。")
