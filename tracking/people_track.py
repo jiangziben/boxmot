@@ -37,14 +37,17 @@ import threading
 from ultralytics.utils.node import ListenerNode
 import rospy
 
-host_name = 'jzb'
+host_name = 'zk'
 # 相机内参矩阵 (fx, fy, cx, cy)
 intrinsics = np.array([
     [1031.449707, 0, 957.330994],  # fx, 0, cx
     [0, 1031.363525, 534.711609],  # 0, fy, cy
     [0, 0, 1]           # 0, 0, 1
 ])
-
+camera2world_extrinsic = np.array([[0,0,1,0],
+                                   [-1,0,0,0],
+                                   [0,-1,0,0],
+                                   [0,0,0,1]])
 
 class PersonInfo:
     def __init__(self, track_id, name_id,person_bbox,person_keypoints,face_box,face_confidence):
@@ -178,6 +181,25 @@ def plot_results(self,results:Results, people_id:PeopleId, img: np.ndarray, show
             
     return img
 
+def camera_to_world_coordinates(camera_points, rotation_matrix, translation_vector):
+    """
+    将相机坐标系下的点变换到世界坐标系。
+    
+    :param camera_points: 相机坐标系下的点数组 (N x 3)
+    :param rotation_matrix: 相机到世界坐标系的旋转矩阵 (3x3)
+    :param translation_vector: 相机到世界坐标系的平移向量 (3,)
+    :return: 世界坐标系下的点数组 (N x 3)
+    """
+    # 确保输入的形状正确
+    camera_points = np.asarray(camera_points)  # (N x 3)
+    rotation_matrix = np.asarray(rotation_matrix)  # (3 x 3)
+    translation_vector = np.asarray(translation_vector).reshape(1, 3)  # (1 x 3)
+    
+    # 应用世界坐标系变换: world_point = R * camera_point + T
+    world_points = np.dot(camera_points, rotation_matrix.T) + translation_vector
+    
+    return world_points
+
 
 @torch.no_grad()
 def run(args):
@@ -253,15 +275,16 @@ def run(args):
         if host_trajectory is not None and host_trajectory.history_observations is not None and keypoints is not None:
             depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
             foot_point = get_foot_point_from_keypoints_and_depth(keypoints,depth[0],intrinsics,scale=1000.0)
-            if foot_point:
+            if foot_point is not None:
                 # print(f"落脚点的 3D 坐标：X={foot_point[0]}, Y={foot_point[1]}, Z={foot_point[2]}")
                 # 更新消息中的数据
-
-
+                foot_point_w = foot_point
+                # foot_point_w = camera_to_world_coordinates(foot_point,camera2world_extrinsic[0:3,0:3], camera2world_extrinsic[0:3,3])[0]
+# 
                 # 设置位置 (x, y, z)
-                pose_msg.pose.position.x = foot_point[0]
-                pose_msg.pose.position.y = foot_point[1]
-                pose_msg.pose.position.z = foot_point[2]
+                pose_msg.pose.position.x = foot_point_w[0]
+                pose_msg.pose.position.y = foot_point_w[1]
+                pose_msg.pose.position.z = foot_point_w[2]
 
                 # 设置方向 (以四元数表示)
                 pose_msg.pose.orientation.x = 0.0

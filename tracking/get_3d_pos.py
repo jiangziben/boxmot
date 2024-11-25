@@ -94,6 +94,7 @@ def pixel_to_camera_coordinates(x, y, depth, intrinsics):
     :param intrinsics: 相机内参矩阵 (3x3)
     :return: 相机坐标系下的 3D 坐标 (X, Y, Z)
     """
+    camera_xyz = np.zeros(3)
     # 使用相机内参将像素坐标转换为相机坐标系下的 3D 坐标
     fx = intrinsics[0, 0]  # 焦距 (fx)
     fy = intrinsics[1, 1]  # 焦距 (fy)
@@ -101,11 +102,11 @@ def pixel_to_camera_coordinates(x, y, depth, intrinsics):
     cy = intrinsics[1, 2]  # 光心 y 坐标 (cy)
 
     # 计算相机坐标系下的 3D 坐标
-    Z = depth  # 深度值
-    X = (x - cx) * Z / fx
-    Y = (y - cy) * Z / fy
+    camera_xyz[2] = depth  # 深度值
+    camera_xyz[0] = (x - cx) * camera_xyz[2] / fx
+    camera_xyz[1] = (y - cy) * camera_xyz[2] / fy
 
-    return X, Y, Z
+    return camera_xyz
 
 def get_foot_point_from_bbox_and_depth(bbox, depth_map, intrinsics, scale=1.0):
     """
@@ -146,8 +147,8 @@ def get_pos_from_keypoint(keypoint,depth_map, intrinsics, scale=1.0):
     # 如果深度值有效（大于零）
     if depth_foot > 0:
         # 将像素坐标和深度值转换为相机坐标系下的 3D 坐标
-        X, Y, Z = pixel_to_camera_coordinates(keypoint[0], keypoint[1], depth_foot, intrinsics)
-        return X, Y, Z
+        xyz_camera = pixel_to_camera_coordinates(keypoint[0], keypoint[1], depth_foot, intrinsics)
+        return xyz_camera
     else:
         # 如果深度值无效，则返回 None
         return None
@@ -164,7 +165,7 @@ def get_foot_point_from_keypoints_and_depth(keypoints, depth_map, intrinsics, sc
     right_foot_pos = get_pos_from_keypoint(right_foot_keypoint,depth_map,intrinsics, scale)
     foot_pos = None
     if left_foot_pos is not None and right_foot_pos is not None:
-        foot_pos = (left_foot_pos[0]+right_foot_pos[0])/2.0, (left_foot_pos[1]+right_foot_pos[1])/2.0, (left_foot_pos[2]+right_foot_pos[2])/2.0
+        foot_pos = (left_foot_pos + right_foot_pos) / 2.0
     elif left_foot_pos is not None:
         foot_pos = left_foot_pos
     elif right_foot_pos is not None:
