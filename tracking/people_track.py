@@ -37,7 +37,7 @@ import threading
 from ultralytics.utils.node import ListenerNode
 import rospy
 
-host_name = 'zk'
+host_name = 'jzb'
 # 相机内参矩阵 (fx, fy, cx, cy)
 intrinsics = np.array([
     [1031.449707, 0, 957.330994],  # fx, 0, cx
@@ -47,11 +47,13 @@ intrinsics = np.array([
 
 
 class PersonInfo:
-    def __init__(self, track_id, name_id, face_box,keypoints):
+    def __init__(self, track_id, name_id,person_bbox,person_keypoints,face_box,face_confidence):
         self.track_id = track_id
         self.name_id  = name_id
+        self.person_bbox = person_bbox
+        self.person_keypoints = person_keypoints
         self.face_box = face_box
-        self.keypoints = keypoints
+        self.face_confidence = face_confidence
 
 class PeopleId:
     def __init__(self,known_people_names):
@@ -72,27 +74,26 @@ class PeopleId:
         return (boxA[0] >= boxB[0] and boxA[1] >= boxB[1] and
                 boxA[2] <= boxB[2] and boxA[3] <= boxB[3])
     
-    def init(self,result,face_names, face_locations):
-        for i,box in enumerate(result.boxes.data):
+    def update(self,result,face_ids,face_locations,face_confidences,person_indexes):
+        for i,name_id in enumerate(face_ids):
+            box = result.boxes.data[person_indexes[i]]
+            keypoints = result.keypoints.data[person_indexes[i]]
             track_id = int(box[4])
-            person_info = PersonInfo(track_id, -1, box,result.keypoints.data[i])
-            for face_location in face_locations:
-                if self.is_box_inside(face_location, box[0:4]):
-                    name_id = face_names[face_locations.index(face_location)]
-                    person_info.name_id = name_id
-                    self.people_id[track_id] = person_info
-                    return True
-        return False
+            person_info = PersonInfo(track_id, name_id, box,keypoints,face_locations[i],face_confidences[i])
+            if name_id >=0 and (name_id not in self.people_id or person_info.face_confidence > self.people_id[name_id].face_confidence):
+                self.people_id[name_id] = person_info
+        
     def get_person_id(self,track_id):
-        if track_id in self.people_id:
-            return self.people_id[track_id].name_id  
+        for name_id, person_info in self.people_id.items():
+            if person_info.track_id == track_id:
+                return name_id
+        return -1
+ 
+    def get_track_id(self,name_id):
+        if name_id in self.people_id:
+            return self.people_id[name_id].track_id  
         else:
             return -1
-    def get_track_id(self,name_id):
-        for track_id, person_info in self.people_id.items():
-            if person_info.name_id == name_id:
-                return track_id
-        return -1
     
     def get_person_trajectory(self, name_id, active_tracks):
         track_id = self.get_track_id(name_id)
@@ -102,9 +103,8 @@ class PeopleId:
                     return active_track
         return None
     def get_keypoints(self,name_id):
-        track_id = self.get_track_id(name_id)
-        if track_id in self.people_id:
-            return self.people_id[track_id].keypoints
+        if name_id in self.people_id:
+            return self.people_id[name_id].person_keypoints
         else:
             return None
 
@@ -241,11 +241,12 @@ def run(args):
     rate = rospy.Rate(10)  # 10 Hz
     host_id = (face_detector.known_face_names == host_name).argmax()
     for i,r in enumerate(results):
+        time_start = time.time()
         if rospy.is_shutdown():
             break      
-        face_ids,face_locations,_,face_confidence = face_detector.detect_faces(r.orig_img)
+        face_ids,face_locations,_,face_confidences,person_indexes = face_detector.detect_faces(r.orig_img,r)
         if len(face_ids) > 0:
-            people_id.init(r, face_ids, face_locations)
+            people_id.update(r, face_ids, face_locations,face_confidences,person_indexes)
             
         host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
         keypoints = people_id.get_keypoints(host_id)
@@ -289,7 +290,7 @@ def run(args):
         pub.publish(pose_msg)
         # 打印日志，方便调试
         rospy.loginfo("Publishing: %s,%s,%s", pose_msg.pose.position.x,pose_msg.pose.position.y,pose_msg.pose.position.z)
-        
+        print("used time: ", time.time()-time_start)
         if args.show is True:
             img = plot_results(yolo.predictor.trackers[0],r,people_id,r.orig_img, args.show_trajectories)
 
@@ -353,7 +354,7 @@ def parse_opt():
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', default=False, action='store_true',
                         help='not mix up classes when tracking')
-    parser.add_argument('--verbose', default=True, action='store_true',
+    parser.add_argument('--verbose', default=False, action='store_true',
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
