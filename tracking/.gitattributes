@@ -1,5 +1,0 @@
-/home/jiangziben/CodeProject/boxmot/third_party/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl filter=lfs diff=lfs merge=lfs -text
-/home/jiangziben/CodeProject/boxmot/third_party/onnxruntime_gpu-1.17.0-cp38-cp38-linux_aarch64.whl filter=lfs diff=lfs merge=lfs -text
-/home/jiangziben/CodeProject/boxmot/third_party/vision-0.16.2 filter=lfs diff=lfs merge=lfs -text
-/home/jiangziben/CodeProject/boxmot/tracking/weights filter=lfs diff=lfs merge=lfs -text
-../data filter=lfs diff=lfs merge=lfs -text
