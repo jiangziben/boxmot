@@ -37,7 +37,6 @@ import threading
 from ultralytics.utils.node import ListenerNode
 import rospy
 
-host_name = 'zk'
 # 相机内参矩阵 (fx, fy, cx, cy)
 intrinsics = np.array([
     [1031.449707, 0, 957.330994],  # fx, 0, cx
@@ -249,7 +248,7 @@ def run(args):
     yolo.predictor.custom_args = args
     face_detector = FaceDetectorV3(args.yolo_model,args.reid_model, args.host_image_path)
     people_id = PeopleId(face_detector.known_face_names)
-    face_detected = False
+    host_detected = False
 
     # 初始化ROS节点
     # rospy.init_node('people_tracking_node', anonymous=True)
@@ -261,18 +260,21 @@ def run(args):
     
     # 设置发布的频率（10Hz）
     rate = rospy.Rate(10)  # 10 Hz
+    host_name = args.host_name
     host_id = (face_detector.known_face_names == host_name).argmax()
     for i,r in enumerate(results):
         time_start = time.time()
         if rospy.is_shutdown():
-            break      
-        face_ids,face_locations,_,face_confidences,person_indexes = face_detector.detect_faces(r.orig_img,r)
-        if len(face_ids) > 0:
-            people_id.update(r, face_ids, face_locations,face_confidences,person_indexes)
+            break  
+        if not host_detected:
+            face_ids,face_locations,_,face_confidences,person_indexes = face_detector.detect_faces(r.orig_img,r)
+            if len(face_ids) > 0:
+                people_id.update(r, face_ids, face_locations,face_confidences,person_indexes)
             
         host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
         keypoints = people_id.get_keypoints(host_id)
         if host_trajectory is not None and host_trajectory.history_observations is not None and keypoints is not None:
+            host_detected = True
             depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
             foot_point = get_foot_point_from_keypoints_and_depth(keypoints,depth[0],intrinsics,scale=1000.0)
             if foot_point is not None:
@@ -295,6 +297,7 @@ def run(args):
             else:
                 print("无法获取落脚点的 3D 坐标，可能是深度无效。")                    
         else:
+            host_detected = False
             # 设置位置 (x, y, z)
             pose_msg.pose.position.x = 0
             pose_msg.pose.position.y = 0
@@ -383,6 +386,8 @@ def parse_opt():
                         help='class-agnostic NMS')
     parser.add_argument('--host_image_path', type=str, default= DATA / "known_people/",
                         help='host image path')
+    parser.add_argument('--host_name', type=str, default= "jzb",
+                        help='host name')
 
     opt = parser.parse_args()
     return opt
