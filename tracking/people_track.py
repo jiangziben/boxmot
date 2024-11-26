@@ -326,7 +326,7 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m-pose.pt", #WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m-pose.engine", #WEIGHTS / 'yolov8n',
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.engine',
                         help='reid model path')

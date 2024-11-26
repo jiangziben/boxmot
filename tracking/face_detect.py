@@ -9,7 +9,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics.pairwise import euclidean_distances
 from pathlib import PosixPath
 from tracking.face_location import get_face_location_from_keypoints,draw_face_bboxes
-from facenet_pytorch import MTCNN, InceptionResnetV1
 import torch
 import time
 
