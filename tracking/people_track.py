@@ -318,10 +318,11 @@ def run(args):
         rospy.loginfo("Publishing: %s,%s,%s", pose_msg.pose.position.x,pose_msg.pose.position.y,pose_msg.pose.position.z)
         print("used time: ", time.time()-time_start)
         if args.show is True:
-            img = plot_results(yolo.predictor.trackers[0],r,people_id,r.orig_img, args.show_trajectories)
-
+            img_plot = r.plot(boxes=False, masks=False, labels=False)
+            img = plot_results(yolo.predictor.trackers[0],r,people_id,img_plot, args.show_trajectories)
+            
             cv2.imshow('BoxMOT', img)     
-            key = cv2.waitKey(100) & 0xFF
+            key = cv2.waitKey(40) & 0xFF
             if key == ord(' ') or key == ord('q'):
                 break
         # 按照10Hz的频率发布
