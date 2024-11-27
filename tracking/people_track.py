@@ -405,5 +405,6 @@ if __name__ == "__main__":
             run_thread.start()              
             listener = ListenerNode()  
             listener.spin()  
-        except rospy.ROSInterruptException:  
-            pass  
+        except KeyboardInterrupt:
+            pass
+        print("Exiting Program")
