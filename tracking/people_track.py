@@ -262,6 +262,7 @@ def run(args):
     rate = rospy.Rate(10)  # 10 Hz
     host_name = args.host_name
     host_id = (face_detector.known_face_names == host_name).argmax()
+    cv2.namedWindow("PeopleTracking",cv2.WINDOW_NORMAL)
     for i,r in enumerate(results):
         time_start = time.time()
         if rospy.is_shutdown():
@@ -321,7 +322,7 @@ def run(args):
             img_plot = r.plot(boxes=False, masks=False, labels=False)
             img = plot_results(yolo.predictor.trackers[0],r,people_id,img_plot, args.show_trajectories)
             
-            cv2.imshow('BoxMOT', img)     
+            cv2.imshow('PeopleTracking', img)     
             key = cv2.waitKey(40) & 0xFF
             if key == ord(' ') or key == ord('q'):
                 break
