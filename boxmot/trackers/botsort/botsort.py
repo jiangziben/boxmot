@@ -48,7 +48,7 @@ class BotSort(BaseTracker):
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
         new_track_thresh: float = 0.6,
-        track_buffer: int = 30,
+        track_buffer: int = 3,
         match_thresh: float = 0.8,
         proximity_thresh: float = 0.5,
         appearance_thresh: float = 0.25,

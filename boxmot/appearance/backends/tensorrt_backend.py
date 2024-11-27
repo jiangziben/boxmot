@@ -17,7 +17,7 @@ class TensorRTBackend(BaseModelBackend):
     def load_model(self, w):
 
         LOGGER.info(f"Loading {w} for TensorRT inference...")
-        self.checker.check_packages(("nvidia-tensorrt",))
+        # self.checker.check_packages(("nvidia-tensorrt",))
         import tensorrt as trt  # https://developer.nvidia.com/nvidia-tensorrt-download
 
         if self.device.type == "cpu":
