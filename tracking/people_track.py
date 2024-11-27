@@ -286,6 +286,10 @@ def run(args):
         pose_msg.header.stamp = rospy.Time.now()  
         pose_msg.header.frame_id = "dog"  # 设置坐标系frame_id
         # 发布消息到话题
+        
+        pose_msg.pose.position.x = 10
+        pose_msg.pose.position.y = 0
+        pose_msg.pose.position.z = 10
         pub.publish(pose_msg)
         # 打印日志，方便调试
         rospy.loginfo("Publishing: %s,%s,%s", pose_msg.pose.position.x,pose_msg.pose.position.y,pose_msg.pose.position.z)
@@ -311,7 +315,9 @@ def parse_opt():
     #                     help='file/dir/URL/glob, 0 for webcam')
     # parser.add_argument('--source', type=str, default='6',
     #                     help='file/dir/URL/glob, 0 for webcam')
-    parser.add_argument('--source', type=str, default=DATA / "known_people/",
+    # parser.add_argument('--source', type=str, default=DATA / "known_people/",
+    #                     help='file/dir/URL/glob/ros, 0 for webcam')
+    parser.add_argument('--source', type=str, default='ros',
                         help='file/dir/URL/glob/ros, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640],
                         help='inference size h,w')
@@ -374,5 +380,6 @@ if __name__ == "__main__":
             run_thread.start()              
             listener = ListenerNode()  
             listener.spin()  
-        except rospy.ROSInterruptException:  
-            pass  
+        except KeyboardInterrupt:
+            pass
+        print("Exiting Program")

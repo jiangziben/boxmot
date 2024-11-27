@@ -59,6 +59,8 @@ class LoadRos:
         self.bs = 1
         # self.threads = Thread(target=self.ros_thread, daemon=True)
         # self.threads.start()
+        self.color_images = []
+        self.depth_images = []
         self.sources = ['0']
         LOGGER.info("")  # newline
 
@@ -66,19 +68,19 @@ class LoadRos:
         return self
 
     def __next__(self):
-        images = []
+
         with lock: 
             # 获取队列中的最后一个数据  
             if color_queue and depth_queue:  
                 # 读取队列中的最后一个  
                 color_item = color_queue.pop() 
                 depth_item = depth_queue.pop()
-                color_images = [color_item]
-                depth_images = [depth_item]
+                self.color_images = [color_item]
+                self.depth_images = [depth_item]
             else:  
               LOGGER.warning("Queue is empty, nothing to read.")  
 
-        return self.sources, color_images, [""] * self.bs, depth_images
+        return self.sources, self.color_images, [""] * self.bs, self.depth_images
 
 class LoadStreams:
     """
