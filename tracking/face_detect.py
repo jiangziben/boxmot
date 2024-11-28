@@ -430,22 +430,24 @@ class FaceDetectorV4:
         people_locations = detect_result.boxes.data
         # Find all the faces and face encodings in the unknown image
         body_encodings = self.reid_model.get_features(people_locations[:,:4].cpu().numpy(), unknown_image)
-        face_ids = []
+        body_ids = []
         body_confidences = []
+        person_indexes = []
         # Loop through each face found in the unknown image
-        for body_encoding in body_encodings:
+        for i,body_encoding in enumerate(body_encodings):
             euclidean_sim = euclidean_distances(body_encoding[np.newaxis, :], self.known_body_encodings)
             min_idx = np.argmin(euclidean_sim, axis=1)
             minimun = np.min(euclidean_sim, axis=1)
             body_confidence = self.confidence_exponential(minimun)
             min_idx[body_confidence < threshold] = -1
             if min_idx[0] >= 0:
-                face_id = self.known_face_ids[min_idx[0]] 
+                body_id = self.known_face_ids[min_idx[0]] 
             else:
-                face_id = -1
-            face_ids.append(face_id)
+                body_id = -1
+            body_ids.append(body_id)
             body_confidences.append(body_confidence[0])
-        return face_ids,people_locations,body_encodings,body_confidences
+            person_indexes.append(i)
+        return body_ids,people_locations,body_encodings,body_confidences,person_indexes
 
 
 def get_images_in_folder(folder_path):
@@ -484,7 +486,7 @@ if __name__ == "__main__":
         detect_result = face_detector.detection_model.predict(unknown_image,verbose=False)[0]
         people_bboxes = detect_result.boxes.data
         face_ids,face_locations,face_encodings,face_confidences,person_indexes = face_detector.detect_faces(unknown_image,detect_result)
-        body_ids,body_locations,body_encodings,body_confidences = face_detector.detect_bodys(unknown_image,detect_result)
+        body_ids,body_locations,body_encodings,body_confidences,body_person_indexes = face_detector.detect_bodys(unknown_image,detect_result)
         print("used_times: ",time.time() - start)
         # Convert the image to a PIL-format image so that we can draw on top of it with the Pillow library
         # See http://pillow.readthedocs.io/ for more about PIL/Pillow

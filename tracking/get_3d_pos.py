@@ -139,9 +139,11 @@ def get_foot_point_from_bbox_and_depth(bbox, depth_map, intrinsics, scale=1.0):
 
 def get_pos_from_keypoint(keypoint,depth_map, intrinsics, scale=1.0):
     # 获取深度图中对应像素的深度值
-    roi_size = 10
+    roi_size = 20
     if keypoint[2] > 0.5:
-        depth_foot = np.mean(depth_map[int(keypoint[1]-roi_size/2):int(keypoint[1]+roi_size/2), int(keypoint[0]-roi_size/2):int(keypoint[0]+roi_size/2)])/scale#depth_map[y_foot, x_foot]/1000.0
+        region_depth = depth_map[int(keypoint[1]-roi_size/2):int(keypoint[1]+roi_size/2), int(keypoint[0]-roi_size/2):int(keypoint[0]+roi_size/2)]/scale
+        depth_foot = np.median(region_depth)
+        # depth_foot = np.mean(depth_map[int(keypoint[1]-roi_size/2):int(keypoint[1]+roi_size/2), int(keypoint[0]-roi_size/2):int(keypoint[0]+roi_size/2)])/scale#depth_map[y_foot, x_foot]/1000.0
     else:
         return None
     # 如果深度值有效（大于零）
@@ -154,8 +156,8 @@ def get_pos_from_keypoint(keypoint,depth_map, intrinsics, scale=1.0):
         return None
 
 def get_foot_point_from_keypoints_and_depth(keypoints, depth_map, intrinsics, scale=1.0):
-    left_foot_index = 15  # 左眼的索引
-    right_foot_index = 16  # 右眼的索引 
+    left_foot_index = 15  #
+    right_foot_index = 16  #  
     keypoints_array = keypoints.cpu().numpy() 
     if keypoints_array.shape[0] == 0:
         return None

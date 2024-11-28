@@ -13,8 +13,8 @@ def main():
     parser = argparse.ArgumentParser(description='参数解析示例')
 
     # 添加参数
-    parser.add_argument('-i', '--input_file', type=str,default="/home/jiangziben/data/people_tracking/3d/2024-11-14-15-00-14.bag", help='输入文件路径')
-    parser.add_argument('-o', '--output_folder', type=str,default="/home/jiangziben/data/people_tracking/3d/2024-11-14-15-00-14",help='输出文件夹路径')
+    parser.add_argument('-i', '--input_file', type=str,default="/home/jiangziben/data/people_tracking/3d/2024-11-27-15-27-04.bag", help='输入文件路径')
+    parser.add_argument('-o', '--output_folder', type=str,default="/home/jiangziben/data/people_tracking/3d/2024-11-27-15-27-04",help='输出文件夹路径')
 
     # 解析参数
     args = parser.parse_args()
@@ -38,16 +38,19 @@ def main():
     bag = rosbag.Bag(args.input_file, 'r')
 
     # 选择要读取的图像话题
-    image_topic = '/camera/color/image_raw'
+    image_topic = '/camera/color/image_raw/compressed'
     depth_image_topic = '/camera/depth/image_raw'
     fisheye_image_topic = '/cam_front/csi_cam/image_raw/compressed'
     # 解析 rosbag 文件中的图像信息
     for topic, msg, t in bag.read_messages(topics=[image_topic, depth_image_topic,fisheye_image_topic]):
+        if topic[-1] == '/':
+            topic = topic[:-1]
         # 将 ROS Image 消息转换为 OpenCV 格式的图像
         try:
             if topic == image_topic:
-                cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                cv_image = bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
             elif topic == depth_image_topic:
+                #  # 解码 CompressedImage 数据
                 cv_depth_image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
             elif topic == fisheye_image_topic:
                  # 解码 CompressedImage 数据
@@ -62,6 +65,7 @@ def main():
         image_filename = os.path.join(color_image_path, f"frame_{timestamp}.png")
         depth_image_filename = os.path.join(depth_image_path, f"frame_{timestamp}.png")
         fisheye_image_filename = os.path.join(fisheye_image_path, f"frame_{timestamp}.png")
+
         # 保存图像文件
         if topic == image_topic:
             cv2.imwrite(image_filename, cv_image)
