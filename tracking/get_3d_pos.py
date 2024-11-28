@@ -139,10 +139,10 @@ def get_foot_point_from_bbox_and_depth(bbox, depth_map, intrinsics, scale=1.0):
 
 def get_pos_from_keypoint(keypoint,depth_map, intrinsics, scale=1.0):
     # 获取深度图中对应像素的深度值
-    roi_size = 20
+    roi_size = 15
     if keypoint[2] > 0.5:
         region_depth = depth_map[int(keypoint[1]-roi_size/2):int(keypoint[1]+roi_size/2), int(keypoint[0]-roi_size/2):int(keypoint[0]+roi_size/2)]/scale
-        depth_foot = np.median(region_depth)
+        depth_foot = np.mean(np.median(region_depth,axis=1))
         # depth_foot = np.mean(depth_map[int(keypoint[1]-roi_size/2):int(keypoint[1]+roi_size/2), int(keypoint[0]-roi_size/2):int(keypoint[0]+roi_size/2)])/scale#depth_map[y_foot, x_foot]/1000.0
     else:
         return None

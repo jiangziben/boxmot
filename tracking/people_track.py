@@ -49,12 +49,9 @@ camera2world_extrinsic = np.array([[0,0,1,0],
                                    [0,0,0,1]])
 
 class PersonInfo:
-    def __init__(self, track_id, name_id,person_bbox,person_keypoints,face_box,face_confidence):
+    def __init__(self, track_id, name_id,face_confidence):
         self.track_id = track_id
         self.name_id  = name_id
-        self.person_bbox = person_bbox
-        self.person_keypoints = person_keypoints
-        self.face_box = face_box
         self.face_confidence = face_confidence
 
 class PeopleId:
@@ -76,12 +73,11 @@ class PeopleId:
         return (boxA[0] >= boxB[0] and boxA[1] >= boxB[1] and
                 boxA[2] <= boxB[2] and boxA[3] <= boxB[3])
     
-    def update(self,result,face_ids,face_locations,face_confidences,person_indexes):
+    def update(self,result,face_ids,face_confidences,person_indexes):
         for i,name_id in enumerate(face_ids):
             box = result.boxes.data[person_indexes[i]]
-            keypoints = result.keypoints.data[person_indexes[i]]
             track_id = int(box[4])
-            person_info = PersonInfo(track_id, name_id, box,keypoints,face_locations[i],face_confidences[i])
+            person_info = PersonInfo(track_id, name_id,face_confidences[i])
             if name_id >=0 and (name_id not in self.people_id or person_info.face_confidence > self.people_id[name_id].face_confidence):
                 self.people_id[name_id] = person_info
         
@@ -104,11 +100,12 @@ class PeopleId:
                 if active_track.id == track_id:
                     return active_track
         return None
-    def get_keypoints(self,name_id):
-        if name_id in self.people_id:
-            return self.people_id[name_id].person_keypoints
-        else:
-            return None
+    def get_keypoints(self,name_id,result):
+        track_id = self.get_track_id(name_id)
+        for i,box in enumerate(result.boxes.data):
+            if track_id == int(box[4]): 
+                return result.keypoints.data[i]                 
+        return None
 
 def on_predict_start(predictor, persist=False):
     """
@@ -270,10 +267,10 @@ def run(args):
         if not host_detected:
             face_ids,face_locations,_,face_confidences,person_indexes = face_detector.detect_faces(r.orig_img,r)
             if len(face_ids) > 0:
-                people_id.update(r, face_ids, face_locations,face_confidences,person_indexes)
+                people_id.update(r, face_ids,face_confidences,person_indexes)
             
         host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
-        keypoints = people_id.get_keypoints(host_id)
+        keypoints = people_id.get_keypoints(host_id,r)
         if host_trajectory is not None and host_trajectory.history_observations is not None and keypoints is not None:
             host_detected = True
             depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
