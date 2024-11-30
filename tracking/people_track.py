@@ -276,7 +276,7 @@ def run(args):
     host_id = host_name#(face_detector.known_face_names == host_name).argmax()
     if args.show:
         cv2.namedWindow("PeopleTracking",cv2.WINDOW_NORMAL)
-    face_ids,face_confidences,person_indexes=[],[],[]
+    # face_ids,face_confidences,person_indexes=[],[],[]
     for i,r in enumerate(results):
         time_start = time.time()
         if rospy.is_shutdown():
@@ -335,7 +335,7 @@ def run(args):
         pub.publish(pose_msg)
         # 打印日志，方便调试
         rospy.loginfo("Publishing: %s,%s,%s", pose_msg.pose.position.x,pose_msg.pose.position.y,pose_msg.pose.position.z)
-        print("used time: ", time.time()-time_start)
+        print("face recognition used time: ", time.time()-time_start)
         if args.show is True:
             img_plot = r.plot(boxes=True, masks=False, labels=True) 
             img = plot_results(yolo.predictor.trackers[0],r,people_id,img_plot, args.show_trajectories,fontscale=1.0,thickness=5)
@@ -399,7 +399,7 @@ def parse_opt():
                         help='The line width of the bounding boxes. If None, it is scaled to the image size.')
     parser.add_argument('--per-class', default=False, action='store_true',
                         help='not mix up classes when tracking')
-    parser.add_argument('--verbose', default=False, action='store_true',
+    parser.add_argument('--verbose', default=True, action='store_true',
                         help='print results per frame')
     parser.add_argument('--agnostic-nms', default=False, action='store_true',
                         help='class-agnostic NMS')
