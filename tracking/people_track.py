@@ -27,7 +27,7 @@ from ultralytics.utils.plotting import Annotator, colors
 from ultralytics.data.utils import VID_FORMATS
 from ultralytics.utils.plotting import save_one_box
 from ultralytics.engine.results import Results
-from tracking.face_detect import FaceDetector,FaceDetectorV2,FaceDetectorV3
+from tracking.face_detect import FaceDetector,FaceDetectorV2,FaceDetectorV3,FaceDetectorV5
 import time
 from tracking.get_3d_pos import get_foot_point_from_bbox_and_depth,get_foot_point_from_keypoints_and_depth
 import rospy
@@ -55,9 +55,8 @@ class PersonInfo:
         self.face_confidence = face_confidence
 
 class PeopleId:
-    def __init__(self,known_people_names):
+    def __init__(self):
         self.people_id = {}
-        self.known_people_names = known_people_names
 
     def is_box_inside(self,boxA, boxB):
         """
@@ -78,7 +77,7 @@ class PeopleId:
             box = result.boxes.data[person_indexes[i]]
             track_id = int(box[4])
             person_info = PersonInfo(track_id, name_id,face_confidences[i])
-            if name_id >=0 and (name_id not in self.people_id or person_info.face_confidence > self.people_id[name_id].face_confidence):
+            if name_id != "unknown" and (name_id not in self.people_id or person_info.face_confidence > self.people_id[name_id].face_confidence):
                 self.people_id[name_id] = person_info
         
     def get_person_id(self,track_id):
@@ -100,6 +99,7 @@ class PeopleId:
                 if active_track.id == track_id:
                     return active_track
         return None
+    
     def get_keypoints(self,name_id,result):
         track_id = self.get_track_id(name_id)
         for i,box in enumerate(result.boxes.data):
@@ -153,27 +153,42 @@ def plot_results(self,results:Results, people_id:PeopleId, img: np.ndarray, show
     Returns:
     - np.ndarray: The image array with trajectories and bounding boxes of all active tracks.
     """
-    for a in self.active_tracks:
-        if a.history_observations:
-            if len(a.history_observations) > 2:
-                box = a.history_observations[-1]
-                img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
-                if 0 == a.cls:
-                    if -1 == people_id.get_person_id(a.id):
-                        name = "unknown"
-                    else:
-                        name = people_id.known_people_names[people_id.get_person_id(a.id)] 
-                    img = cv2.putText(
-                        img,
-                        f'name: {name}',
-                        (int(box[0]), int(box[3]) + 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        fontscale,
-                        self.id_to_color(a.id),
-                        thickness
-                    )                    
-                if show_trajectories:
-                    img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
+    for box in results.boxes.data:
+        id = int(box[4])
+        if -1 == people_id.get_person_id(id):
+            name = "unknown"
+        else:
+            name = people_id.get_person_id(id)#people_id.known_people_names[people_id.get_person_id(a.id)] 
+        img = cv2.putText(
+            img,
+            f'name: {name}',
+            (int(box[0]), int(box[3]) + 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            fontscale,
+            self.id_to_color(id),
+            thickness
+        )  
+    # for a in self.active_tracks:
+    #     if a.history_observations:
+    #         if len(a.history_observations) > 2:
+    #             box = a.history_observations[-1]
+    #             img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
+    #             if 0 == a.cls:
+    #                 if -1 == people_id.get_person_id(a.id):
+    #                     name = "unknown"
+    #                 else:
+    #                     name = people_id.get_person_id(a.id)#people_id.known_people_names[people_id.get_person_id(a.id)] 
+    #                 img = cv2.putText(
+    #                     img,
+    #                     f'name: {name}',
+    #                     (int(box[0]), int(box[3]) + 10),
+    #                     cv2.FONT_HERSHEY_SIMPLEX,
+    #                     fontscale,
+    #                     self.id_to_color(a.id),
+    #                     thickness
+    #                 )                    
+    #             if show_trajectories:
+    #                 img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
             
     return img
 
@@ -243,8 +258,8 @@ def run(args):
 
     # store custom args in predictor
     yolo.predictor.custom_args = args
-    face_detector = FaceDetectorV3(args.yolo_model,args.reid_model, args.host_image_path)
-    people_id = PeopleId(face_detector.known_face_names)
+    face_detector = FaceDetectorV5(args.yolo_model,args.reid_model, args.host_image_path)
+    people_id = PeopleId()
     host_detected = False
 
     # 初始化ROS节点
@@ -258,20 +273,26 @@ def run(args):
     # 设置发布的频率（10Hz）
     rate = rospy.Rate(10)  # 10 Hz
     host_name = args.host_name
-    host_id = (face_detector.known_face_names == host_name).argmax()
-    cv2.namedWindow("PeopleTracking",cv2.WINDOW_NORMAL)
+    host_id = host_name#(face_detector.known_face_names == host_name).argmax()
+    if args.show:
+        cv2.namedWindow("PeopleTracking",cv2.WINDOW_NORMAL)
+    face_ids,face_confidences,person_indexes=[],[],[]
     for i,r in enumerate(results):
         time_start = time.time()
         if rospy.is_shutdown():
             break  
         if not host_detected:
-            face_ids,face_locations,_,face_confidences,person_indexes = face_detector.detect_faces(r.orig_img,r)
-            if len(face_ids) > 0:
+            # face_ids,face_locations,_,face_confidences,person_indexes = face_detector.detect_faces(r.orig_img,r)
+            face_infos = face_detector.detect_faces(r.orig_img,r)
+            if face_infos and len(face_infos['label'])>0:
+                face_ids = face_infos['label']
+                face_confidences = face_infos['score']
+                person_indexes = face_infos['person_index']
                 people_id.update(r, face_ids,face_confidences,person_indexes)
             
-        host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
+        # host_trajectory = people_id.get_person_trajectory(host_id,yolo.predictor.trackers[0].active_tracks)
         keypoints = people_id.get_keypoints(host_id,r)
-        if host_trajectory is not None and host_trajectory.history_observations is not None and keypoints is not None:
+        if keypoints is not None:
             host_detected = True
             depth = yolo.predictor.batch[3] if len(yolo.predictor.batch) == 4 else None
             foot_point = get_foot_point_from_keypoints_and_depth(keypoints,depth[0],intrinsics,scale=1000.0)
@@ -316,9 +337,8 @@ def run(args):
         rospy.loginfo("Publishing: %s,%s,%s", pose_msg.pose.position.x,pose_msg.pose.position.y,pose_msg.pose.position.z)
         print("used time: ", time.time()-time_start)
         if args.show is True:
-            img_plot = r.plot(boxes=False, masks=False, labels=False)
-            img = plot_results(yolo.predictor.trackers[0],r,people_id,img_plot, args.show_trajectories)
-            
+            img_plot = r.plot(boxes=True, masks=False, labels=True) 
+            img = plot_results(yolo.predictor.trackers[0],r,people_id,img_plot, args.show_trajectories,fontscale=1.0,thickness=5)
             cv2.imshow('PeopleTracking', img)     
             key = cv2.waitKey(40) & 0xFF
             if key == ord(' ') or key == ord('q'):
@@ -328,7 +348,7 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m-pose.engine", #WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m-pose.pt", #WEIGHTS / 'yolov8n',
                         help='yolo model path')
     parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.engine',
                         help='reid model path')

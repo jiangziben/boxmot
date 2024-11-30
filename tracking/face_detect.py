@@ -1,7 +1,12 @@
+import sys
+import os
+# 获取当前脚本路径
+script_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(script_path, "../third_party/face_recognition")) # add ultralytics to path
+
 import face_recognition
 from PIL import Image, ImageDraw
 import numpy as np
-import os
 import cv2
 from ultralytics import YOLO
 from tracking.get_reid_feature import Reid_feature
@@ -12,6 +17,7 @@ from tracking.face_location import get_face_location_from_keypoints,draw_face_bb
 import torch
 import time
 from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+from third_party.face_recognition.core.face_recognizer import FaceRecognizer
 class FaceDetector:
     def __init__(self, host_image_path):
         # Load a sample picture and learn how to recognize it.
@@ -240,7 +246,7 @@ class FaceDetectorV3:
             face_confidences.append(face_confidence[0])
         return face_ids,face_locations_x1y1x2y2,face_encodings,face_confidences
     
-    def detect_faces(self, unknown_image,detect_result, threshold = 0.7):
+    def detect_faces(self, unknown_image,detect_result, threshold = 0.6):
         people_keypoints = detect_result.keypoints.data
         # Find all the faces and face encodings in the unknown image
         person_indexes = []
@@ -389,7 +395,7 @@ class FaceDetectorV4:
             face_confidences.append(face_confidence[0])
         return face_ids,face_locations_x1y1x2y2,face_encodings,face_confidences
     
-    def detect_faces(self, unknown_image,detect_result, threshold = 0.7):
+    def detect_faces(self, unknown_image,detect_result, threshold = 0.6):
         people_keypoints = detect_result.keypoints.data
         # Find all the faces and face encodings in the unknown image
         person_indexes = []
@@ -449,7 +455,69 @@ class FaceDetectorV4:
             person_indexes.append(i)
         return body_ids,people_locations,body_encodings,body_confidences,person_indexes
 
+class FaceDetectorV5(FaceRecognizer):
+    def __init__(self, detection_model,reid_model,host_image_path):
+        if isinstance(detection_model, str) or isinstance(detection_model, PosixPath):
+            self.detection_model = YOLO(detection_model)  # build from YAML and transfer weights
+        else:
+            self.detection_model = detection_model
+        if isinstance(reid_model, str) or isinstance(reid_model, PosixPath):
+            self.reid_model = ReidAutoBackend(
+                weights=PosixPath(reid_model), device=torch.device("cuda:0"), half=False
+            ).model
+        else:
+            self.reid_model = reid_model 
+        database = os.path.join(host_image_path,"database-resnet50.json") 
+        super().__init__(database)
+        if not os.path.exists(database):
+            super().create_database(host_image_path)
+            
+    def merge_dicts(self,face_infos,face_info):
+        """
+        合并多个字典，对于相同的键：
+        - 如果值是列表，则合并为一个列表。
+        - 如果值是 numpy.ndarray，则合并为一个新的 numpy.ndarray。
+        - 如果值类型不一致，则抛出异常。
 
+        参数:
+            *dicts: 多个待合并的字典。
+
+        返回:
+            dict: 合并后的字典。
+
+        异常:
+            TypeError: 当值类型不支持或类型不一致时。
+        """
+        if face_info and len(face_info['boxes']) > 0:
+            for key, value in face_info.items():
+                if key in face_infos:
+                    if isinstance(face_infos[key], list) and isinstance(value, list):
+                        face_infos[key].extend(value)
+                    elif isinstance(face_infos[key], np.ndarray) and isinstance(value, np.ndarray):
+                        face_infos[key] = np.concatenate((face_infos[key], value), axis=0)
+        return face_infos
+    
+    def detect_faces(self, unknown_image,detect_result, threshold = 0.6):
+        people_keypoints = detect_result.keypoints.data
+        # Find all the faces and face encodings in the unknown image
+        face_infos = {}
+        for i,person_keypoints in enumerate(people_keypoints):
+            face_bbox = get_face_location_from_keypoints(person_keypoints,unknown_image.shape,u_padding_ratio=1.5,v_padding_ratio=1.8)
+            if face_bbox is not None:
+                (left, top, right, bottom) = map(int,face_bbox)
+                face_info = self.detect_search(unknown_image[top:bottom,left:right],max_face=1,vis=False)
+                if face_info and face_info['boxes'].shape[0] > 0:
+                    face_info['boxes'][:,0] +=left
+                    face_info['boxes'][:,2] +=left
+                    face_info['boxes'][:,1] +=top
+                    face_info['boxes'][:,3] +=top
+                    face_info.update({"person_index":[i]}) 
+                if not face_infos:
+                    face_infos = face_info
+                else:
+                    face_infos = self.merge_dicts(face_infos,face_info)
+        return face_infos
+    
 def get_images_in_folder(folder_path):
     """
     获取指定文件夹下所有图片文件
@@ -466,28 +534,30 @@ def get_images_in_folder(folder_path):
     # 按照文件的修改时间进行排序
     images.sort(key=lambda x: os.path.getmtime(x))
     return images 
-if __name__ == "__main__":
-    # This is an example of running face recognition on a single image
+
+def FaceDetectorV3Test():
+        # This is an example of running face recognition on a single image
     # and drawing a box around each person that was identified.
-    face_detector = FaceDetectorV4("/home/jiangziben/CodeProject/boxmot/tracking/weights/yolov11m-pose.pt",
+    face_detector = FaceDetectorV3("/home/jiangziben/CodeProject/boxmot/tracking/weights/yolov11m-pose.pt",
                                    "/home/jiangziben/CodeProject/boxmot/tracking/weights/osnet_x0_25_msmt17.pt",
                                    "/home/jiangziben/CodeProject/boxmot/data/known_people/")
     # face_detector = FaceDetector("/home/jiangziben/data/people_tracking/known_people/jzb/jzb.png")
     # Load an image with an unknown face
-    folder_path = "/home/jiangziben/data/people_tracking/multi_people/"
+    folder_path = "/home/jiangziben/data/people_tracking/zk"
     person_name = folder_path.split("/")[-1]
     images_path = get_images_in_folder(folder_path)
     num_all = len(images_path)
     num_right = 0
-    # while True:
+    used_times_mean = 0
     for image_path in images_path:
         unknown_image = face_recognition.load_image_file(image_path)
         start = time.time()
         detect_result = face_detector.detection_model.predict(unknown_image,verbose=False)[0]
         people_bboxes = detect_result.boxes.data
         face_ids,face_locations,face_encodings,face_confidences,person_indexes = face_detector.detect_faces(unknown_image,detect_result)
-        body_ids,body_locations,body_encodings,body_confidences,body_person_indexes = face_detector.detect_bodys(unknown_image,detect_result)
-        print("used_times: ",time.time() - start)
+        used_time = time.time() - start
+        print("used_times: ",used_time)
+        used_times_mean += used_time/num_all
         # Convert the image to a PIL-format image so that we can draw on top of it with the Pillow library
         # See http://pillow.readthedocs.io/ for more about PIL/Pillow
         pil_image = Image.fromarray(unknown_image)
@@ -502,16 +572,7 @@ if __name__ == "__main__":
                 name = "Unknown"
             else:
                 name = face_detector.known_face_names[face_id]
-            
-            body_confidence = 0.0
-            body_name = "Unknown"
-            body_id = body_ids[person_index]
-            body_confidence = body_confidences[person_index]            
-            if body_id == -1:
-                body_name = "Unknown"
-            else:
-                body_name = face_detector.known_face_names[body_id]
-            
+                        
             if(person_name == name):
                 num_right += 1
             
@@ -523,7 +584,7 @@ if __name__ == "__main__":
             # # Draw a label with a name below the face
             text_width, text_height = 50,50
             # draw.rectangle(((left, bottom - text_height - 10), (right, bottom)), fill=(0, 0, 255), outline=(0, 0, 255))
-            draw.text((left + 6, bottom - text_height - 5), name + ", c: " + f"{face_confidence:.2f}  " + body_name + ", c: " + f"{body_confidence:.2f}", fill=(255, 0, 0, 255))
+            draw.text((left + 6, bottom - text_height - 5), name + ", c: " + f"{face_confidence:.2f}", fill=(255, 0, 0, 255))
 
         # Remove the drawing library from memory as per the Pillow docs
         del draw
@@ -536,5 +597,162 @@ if __name__ == "__main__":
     else:
         accuracy = 0
     print(f"accuracy: {accuracy*100.0:.2f} %")
-    # You can also save a copy of the new image to disk if you want by uncommenting this line
-    # pil_image.save("image_with_boxes.jpg")
+    print(f"used_times_mean: {used_times_mean:.2f} s")
+
+
+def FaceDetectorV4Test():
+        # This is an example of running face recognition on a single image
+    # and drawing a box around each person that was identified.
+    face_detector = FaceDetectorV4("/home/jiangziben/CodeProject/boxmot/tracking/weights/yolov11m-pose.pt",
+                                   "/home/jiangziben/CodeProject/boxmot/tracking/weights/osnet_x0_25_msmt17.pt",
+                                   "/home/jiangziben/CodeProject/boxmot/data/known_people/")
+    # face_detector = FaceDetector("/home/jiangziben/data/people_tracking/known_people/jzb/jzb.png")
+    # Load an image with an unknown face
+    folder_path = "/home/jiangziben/data/people_tracking/3d/follow/Color"
+    person_name = folder_path.split("/")[-1]
+    images_path = get_images_in_folder(folder_path)
+    num_all = len(images_path)
+    num_face_right = 0
+    num_body_right = 0
+    for image_path in images_path:
+        unknown_image = face_recognition.load_image_file(image_path)
+        start = time.time()
+        detect_result = face_detector.detection_model.predict(unknown_image,verbose=False)[0]
+        people_bboxes = detect_result.boxes.data
+        face_ids,face_locations,face_encodings,face_confidences,person_indexes = face_detector.detect_faces(unknown_image,detect_result)
+        body_ids,body_locations,body_encodings,body_confidences,body_person_indexes = face_detector.detect_bodys(unknown_image,detect_result)
+        used_times = time.time() - start
+        print("used_times: ",used_times)
+        # Convert the image to a PIL-format image so that we can draw on top of it with the Pillow library
+        # See http://pillow.readthedocs.io/ for more about PIL/Pillow
+        pil_image = Image.fromarray(unknown_image)
+        # Create a Pillow ImageDraw Draw instance to draw with
+        draw = ImageDraw.Draw(pil_image)
+
+        # Loop through each face found in the unknown image
+        is_face_counted = False 
+        is_body_counted = False       
+        for i, (body_id, body_location, body_encoding,body_confidence,body_person_index) in enumerate(zip(body_ids, body_locations, body_encodings,body_confidences,body_person_indexes)):
+            if i in person_indexes:
+                face_index = person_indexes.index(i)
+                face_location = face_locations[face_index]
+                face_id =face_ids[face_index]
+                face_confidence = face_confidences[face_index]
+                left, top, right, bottom = face_location
+                if face_id == -1:
+                    name = "Unknown"
+                else:
+                    name = face_detector.known_face_names[face_id]
+                # Draw a box around the face using the Pillow module
+                draw.rectangle(((left, top), (right, bottom)), outline=(0, 0, 255))
+                # # Draw a label with a name below the face
+                text_width, text_height = 50,50
+                # draw.rectangle(((left, bottom - text_height - 10), (right, bottom)), fill=(0, 0, 255), outline=(0, 0, 255))
+                draw.text((left + 6, bottom - text_height - 5), name + ", c: " + f"{face_confidence:.2f} ", fill=(255, 0, 0, 255))
+                if(person_name == name and not is_face_counted):
+                    is_face_counted = True
+                    num_face_right += 1
+
+
+            # body_confidence = 0.0
+            # body_name = "Unknown"
+            if body_id == -1:
+                body_name = "Unknown"
+            else:
+                body_name = face_detector.known_face_names[body_id]
+            
+            if(person_name == body_name and not is_body_counted):
+                is_body_counted = True
+                num_body_right += 1
+            
+            
+            draw.rectangle(((body_location[0], body_location[1]), (body_location[2], body_location[3])), outline=(0, 255, 0))
+
+            # # Draw a label with a name below the face
+            text_width, text_height = 50,50
+            # draw.rectangle(((left, bottom - text_height - 10), (right, bottom)), fill=(0, 0, 255), outline=(0, 0, 255))
+            draw.text((body_location[0] + 6, body_location[3] - 5), body_name + ", c: " + f"{body_confidence:.2f} ", fill=(255, 0, 0, 255))
+
+        # Remove the drawing library from memory as per the Pillow docs
+        del draw
+        # Display the resulting image
+        # pil_image.show()
+        cv2.imshow('image',np.array(pil_image)[:,:,::-1])
+        cv2.waitKey(40)
+    if num_all > 0:
+        face_accuracy = num_face_right / num_all
+        body_accuracy = num_body_right/ num_all
+    else:
+        face_accuracy = 0
+        body_accuracy = 0
+    print(f"face_accuracy: {face_accuracy*100.0:.2f} %")
+    print(f"body_accuracy: {body_accuracy*100.0:.2f} %")
+
+def FaceDetectorV5Test():
+    face_detector = FaceDetectorV5("/home/jiangziben/CodeProject/boxmot/tracking/weights/yolov11m-pose.pt",
+                                   "/home/jiangziben/CodeProject/boxmot/tracking/weights/osnet_x0_25_msmt17.pt",
+                                   "/home/jiangziben/CodeProject/boxmot/data/known_people")
+    folder_path = "/home/jiangziben/data/people_tracking/jzb"
+    person_name = folder_path.split("/")[-1]
+    images_path = get_images_in_folder(folder_path)
+    num_all = len(images_path)
+    num_right = 0
+    used_times_mean = 0
+    for image_path in images_path:
+        unknown_image = cv2.imread(image_path)
+        # while True:
+        start = time.time()
+        detect_result = face_detector.detection_model.predict(unknown_image,verbose=False)[0]
+        people_bboxes = detect_result.boxes.data
+
+        face_infos = face_detector.detect_faces(unknown_image,detect_result)
+        used_time = time.time() - start
+        print("used_times: ",used_time)
+        used_times_mean += used_time/num_all
+        # Convert the image to a
+        #  PIL-format image so that we can draw on top of it with the Pillow library
+        # See http://pillow.readthedocs.io/ for more about PIL/Pillow
+        pil_image = Image.fromarray(unknown_image)
+        # Create a Pillow ImageDraw Draw instance to draw with
+        draw = ImageDraw.Draw(pil_image)
+        is_counted = False
+        if face_infos:  
+            # Loop through each face found in the unknown image
+            for i,face_box in enumerate(face_infos['boxes']):
+                left, top, right, bottom = map(int, face_box)
+                person_index = face_infos['person_index'][i]
+                person_box = people_bboxes[person_index]
+                face_confidence = face_infos['score'][i]
+                name = face_infos['label'][i]
+        
+                # Draw a box around the face using the Pillow module
+                draw.rectangle(((left, top), (right, bottom)), outline=(0, 0, 255))
+                draw.rectangle(((person_box[0], person_box[1]), (person_box[2], person_box[3])), outline=(0, 255, 0))
+
+                # # Draw a label with a name below the face
+                text_width, text_height = 50,50
+                # draw.rectangle(((left, bottom - text_height - 10), (right, bottom)), fill=(0, 0, 255), outline=(0, 0, 255))
+                draw.text((left + 6, bottom - text_height - 5), name + ", c: " + f"{face_confidence:.2f}", fill=(255, 0, 0, 255))
+                if(person_name == name and not is_counted):
+                    num_right += 1
+                    is_counted = True
+
+            # # Remove the drawing library from memory as per the Pillow docs
+            # del draw
+            # Display the resulting image
+            # pil_image.show()
+            cv2.imshow('image',np.array(pil_image)[:,:,::-1])
+            cv2.waitKey(40)
+    
+    if num_all > 0:
+        accuracy = num_right / num_all
+    else:
+        accuracy = 0
+    print(f"accuracy: {accuracy*100.0:.2f} %")
+    print(f"used_times_mean: {used_times_mean:.2f} s")
+
+if __name__ == "__main__":
+    # FaceDetectorV3Test()
+    FaceDetectorV4Test()
+    # while True:
+    #     FaceDetectorV5Test()
