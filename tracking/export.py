@@ -1,10 +1,14 @@
 from ultralytics import YOLO
+import sys
+import os
+# 获取当前脚本路径
+script_path = os.path.dirname(os.path.abspath(__file__))
 
-model = YOLO("/home/jiangziben/CodeProject/ultralytics/workspace/people_track/yolo11m-pose.pt")  # Load a model
-model.export(format="engine", half=True)
+model = YOLO(os.path.join(script_path , "weights/yolov11m-pose.pt")) # Load a model
+model.export(format="engine")
 
 # Load the exported TensorRT model
-trt_model = YOLO("/home/jetson/01_project/boxmot/tracking/weights/yolov11m-pose.engine")
+trt_model = YOLO(os.path.join(script_path , "weights/yolov11m-pose.engine"))
 
 # Run inference
 results = trt_model("https://ultralytics.com/images/bus.jpg")

@@ -512,7 +512,7 @@ class FaceDetectorV5(FaceRecognizer):
                     face_info['boxes'][:,1] +=top
                     face_info['boxes'][:,3] +=top
                     face_info.update({"person_index":[i]}) 
-                if not face_infos:
+                if not face_infos and face_info['boxes'].shape[0] > 0:
                     face_infos = face_info
                 else:
                     face_infos = self.merge_dicts(face_infos,face_info)

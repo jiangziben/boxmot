@@ -270,8 +270,8 @@ def run(args):
     # 创建一个发布者，发布到 /float_array 话题上，消息类型为 PoseStamped
     pub = rospy.Publisher('/host_foot_point', PoseStamped, queue_size=10)
     
-    # 设置发布的频率（10Hz）
-    rate = rospy.Rate(10)  # 10 Hz
+    # 设置发布的频率（20Hz）
+    rate = rospy.Rate(20)  # 20 Hz
     host_name = args.host_name
     host_id = host_name#(face_detector.known_face_names == host_name).argmax()
     if args.show:
@@ -348,9 +348,9 @@ def run(args):
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m-pose.pt", #WEIGHTS / 'yolov8n',
+    parser.add_argument('--yolo-model', type=Path, default=WEIGHTS / "yolov11m-pose.engine", #WEIGHTS / 'yolov8n',
                         help='yolo model path')
-    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.engine',
+    parser.add_argument('--reid-model', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt',
                         help='reid model path')
     parser.add_argument('--tracking-method', type=str, default='botsort',
                         help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc')
